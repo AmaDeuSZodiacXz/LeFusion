@@ -1,0 +1,13 @@
+{
+    "name": "LIDC_Nodules",
+    "description": "Lung nodules from LIDC-IDRI dataset",
+    "numTraining": 2104,
+    "numTest": 520,
+    "modality": {
+        "0": "CT"
+    },
+    "labels": {
+        "0": "background",
+        "1": "nodule"
+    }
+}
