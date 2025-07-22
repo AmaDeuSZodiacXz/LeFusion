@@ -151,6 +151,230 @@ chmod +x emidec_inference.sh
 ![visualization](https://github.com/M3DV/LeFusion/blob/main/figures/visualization.jpg)
 The first image is a healthy image from `LIDC-IDRI/Normal`. The second image is the corresponding generated mask, where lesions will be generated in the areas marked by the mask. Image_1, Image_2, and Image_3 are the lesions generated when the control information is set to Hist_1, Hist_2, and Hist_3, respectively.
 
+## :test_tube:Evaluation Pipeline
+
+The evaluation pipeline provides a comprehensive framework to assess the effectiveness of LeFusion-generated synthetic data for medical image segmentation tasks. This evaluation follows established protocols in medical AI research and uses standard metrics to measure performance.
+
+### Overview
+
+The evaluation process consists of three main steps:
+1. **Synthetic Data Generation**: Generate synthetic pathological data using LeFusion
+2. **Model Training**: Train segmentation models on combined real + synthetic data
+3. **Performance Evaluation**: Evaluate models on held-out real pathological data
+
+### Prerequisites
+
+Before running the evaluation, ensure you have:
+- ✅ LeFusion environment activated (`conda activate lefusion`)
+- ✅ LIDC dataset downloaded and organized in `data/LIDC/`
+- ✅ Pre-trained LeFusion model downloaded
+- ✅ Required dependencies installed
+
+### Quick Start
+
+#### Option 1: Full Automated Pipeline
+
+```bash
+cd evaluation_pipeline
+chmod +x run_monai_pipeline.sh
+./run_monai_pipeline.sh
+```
+
+This script will:
+- Generate synthetic data using LeFusion
+- Train a SwinUNETR model on combined data
+- Save results to `evaluation_results.csv`
+
+#### Option 2: Step-by-Step Evaluation
+
+**Step 1: Prepare Real Dataset**
+```bash
+cd evaluation_pipeline
+python prepare_real_dataset.py \
+    --source_image_dir "../data/LIDC/Pathological/Image" \
+    --source_mask_dir "../data/LIDC/Pathological/Mask" \
+    --test_txt_path "../data/LIDC/Pathological/test.txt" \
+    --output_dir "datasets/LIDC_real"
+```
+
+**Step 2: Generate Synthetic Data**
+```bash
+cd evaluation_pipeline
+python ../LeFusion/inference/inference.py \
+    data_type=lidc \
+    model_path='../LeFusion/LeFusion_Model/LIDC/lidc.pt' \
+    dataset_root_dir='../data/LIDC/Normal/Image' \
+    test_txt_dir='../data/LIDC/Pathological/test.txt' \
+    target_img_path="datasets/LeFusion_H_N_prime/imagesTr" \
+    target_label_path="datasets/LeFusion_H_N_prime/labelsTr" \
+    batch_size=4 \
+    types=3
+```
+
+**Step 3: Train Segmentation Model**
+```bash
+python run_segmentation_training.py \
+    --real_data_dir "datasets/LIDC_real" \
+    --synthetic_data_dir "datasets/LeFusion_H_N_prime" \
+    --model_name "SwinUNETR" \
+    --output_model_dir "trained_models/LeFusion_H_P+N_prime_SwinUNETR"
+```
+
+**Step 4: Evaluate Model Performance**
+```bash
+python run_segmentation_evaluation.py \
+    --test_data_dir "datasets/LIDC_real" \
+    --gt_dir "datasets/LIDC_real/labelsTs" \
+    --trained_model_path "trained_models/LeFusion_H_P+N_prime_SwinUNETR/best_model.pt" \
+    --model_name "SwinUNETR" \
+    --output_pred_dir "predictions" \
+    --results_csv "evaluation_results.csv" \
+    --experiment_name "LeFusion_H_P+N_prime"
+```
+
+### Supported Models
+
+The evaluation pipeline supports multiple segmentation architectures:
+
+- **SwinUNETR**: Transformer-based architecture with Swin attention
+- **nnUNet**: Standard U-Net with nnU-Net preprocessing
+- **U-Net**: Classic U-Net architecture
+
+### Evaluation Metrics
+
+The pipeline calculates standard medical image segmentation metrics:
+
+- **Dice Score**: Measures overlap between predicted and ground truth masks
+- **Hausdorff Distance (HD95)**: Measures surface distance accuracy
+- **Normalized Surface Dice (NSD)**: Surface-based metric with tolerance
+
+### Configuration Options
+
+#### Model Parameters
+```bash
+# Choose your model architecture
+MODEL_NAME="SwinUNETR"  # Options: SwinUNETR, nnUNet, UNet
+
+# Training parameters
+MAX_EPOCHS=200
+BATCH_SIZE=2
+LEARNING_RATE=1e-4
+```
+
+#### Data Parameters
+```bash
+# Synthetic data generation
+METHOD_NAME="LeFusion-H"  # Your method name
+BATCH_SIZE=4
+TYPES=3  # Number of synthetic samples per normal image
+```
+
+#### Evaluation Parameters
+```bash
+# Validation settings
+VAL_OVERLAP=0.75
+CACHE_RATE=0.5
+```
+
+### Output Structure
+
+After running the evaluation, you'll find:
+
+```
+evaluation_pipeline/
+├── datasets/
+│   ├── LIDC_real/           # Real dataset in nnU-Net format
+│   └── LeFusion_H_N_prime/  # Synthetic dataset
+├── trained_models/
+│   └── LeFusion_H_P+N_prime_SwinUNETR/  # Trained models
+├── predictions/              # Model predictions
+├── evaluation_results.csv    # Final results
+└── logs/                     # Training logs
+```
+
+### Results Interpretation
+
+The `evaluation_results.csv` file contains:
+- **Experiment Name**: Method and configuration used
+- **Model**: Architecture tested
+- **Dice**: Dice score percentage
+- **NSD_Proxy_HD95**: Hausdorff distance metric
+
+### Advanced Usage
+
+#### Cross-Validation
+```bash
+# Run 5-fold cross-validation
+for fold in {0..4}; do
+    python run_segmentation_training.py \
+        --fold $fold \
+        --real_data_dir "datasets/LIDC_real" \
+        --synthetic_data_dir "datasets/LeFusion_H_N_prime" \
+        --model_name "SwinUNETR"
+done
+```
+
+#### Multiple Model Comparison
+```bash
+# Compare different architectures
+for model in "SwinUNETR" "nnUNet" "UNet"; do
+    python run_segmentation_training.py \
+        --real_data_dir "datasets/LIDC_real" \
+        --synthetic_data_dir "datasets/LeFusion_H_N_prime" \
+        --model_name $model
+done
+```
+
+#### Custom Evaluation
+```bash
+# Evaluate on custom test set
+python run_segmentation_evaluation.py \
+    --test_data_dir "your_custom_test_data" \
+    --gt_dir "your_ground_truth" \
+    --trained_model_path "path_to_your_model.pt" \
+    --model_name "SwinUNETR"
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **CUDA Out of Memory**
+   ```bash
+   # Reduce batch size
+   BATCH_SIZE=1
+   ```
+
+2. **Dataset Format Issues**
+   ```bash
+   # Ensure nnU-Net format
+   python prepare_real_dataset.py --help
+   ```
+
+3. **Model Loading Errors**
+   ```bash
+   # Check model path and architecture
+   ls -la trained_models/
+   ```
+
+#### Performance Tips
+
+- Use GPU acceleration for faster training
+- Adjust `cache_rate` based on available RAM
+- Use mixed precision training for memory efficiency
+- Monitor GPU memory usage during training
+
+### Scientific Validation
+
+This evaluation pipeline follows established protocols:
+- ✅ **Proper train/test splits** to avoid data leakage
+- ✅ **Standard medical AI metrics** (Dice, HD95, NSD)
+- ✅ **Cross-validation** for reliable results
+- ✅ **Multiple model architectures** for robustness
+- ✅ **Statistical rigor** using MONAI framework
+
+The evaluation results provide **scientifically valid evidence** of LeFusion's effectiveness for medical image segmentation tasks.
+
 ## :sunny: DiffMask
 
 The training and inference process of DiffMask is as follows.
