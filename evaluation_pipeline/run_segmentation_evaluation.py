@@ -4,13 +4,54 @@ import os
 import nibabel as nib
 import numpy as np
 import pandas as pd
-from monai.metrics import DiceMetric, HausdorffDistanceMetric
+import sys
+
+# Add the surface_distance library to path
+sys.path.append('DiffTumor/STEP3.SegmentationModel/external/surface-distance')
+from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
+
+def calculate_dice(pred_mask, gt_mask):
+    """
+    Calculate Dice coefficient exactly as in the paper
+    """
+    # Ensure binary masks
+    pred_mask = (pred_mask > 0).astype(bool)
+    gt_mask = (gt_mask > 0).astype(bool)
+    
+    volume_sum = gt_mask.sum() + pred_mask.sum()
+    if volume_sum == 0:
+        return 1.0 if gt_mask.sum() == 0 and pred_mask.sum() == 0 else 0.0
+    
+    volume_intersect = (gt_mask & pred_mask).sum()
+    dice = 2 * volume_intersect / volume_sum
+    return dice
+
+def calculate_nsd_paper(pred_mask, gt_mask, spacing_mm=(1, 1, 1), tolerance=2):
+    """
+    Calculate NSD using the exact implementation from the paper
+    """
+    # Ensure binary masks
+    pred_mask = (pred_mask > 0).astype(bool)
+    gt_mask = (gt_mask > 0).astype(bool)
+    
+    # Calculate NSD using surface_distance library
+    try:
+        surface_distances = compute_surface_distances(gt_mask, pred_mask, spacing_mm=spacing_mm)
+        nsd = compute_surface_dice_at_tolerance(surface_distances, tolerance)
+    except Exception as e:
+        print(f"Warning: NSD calculation failed: {e}")
+        nsd = 0.0
+    
+    return nsd
 
 def calculate_metrics(pred_dir, gt_dir):
-    dice_metric = DiceMetric(include_background=False, reduction="mean")
-    hausdorff_metric = HausdorffDistanceMetric(include_background=False, percentile=95, reduction="mean")
-
+    """
+    Calculate DICE and NSD metrics for all cases using paper implementation
+    """
     case_ids = [f.replace('.nii.gz', '') for f in os.listdir(gt_dir) if f.endswith('.nii.gz')]
+    
+    dice_scores = []
+    nsd_scores = []
     
     for case_id in case_ids:
         gt_path = os.path.join(gt_dir, f"{case_id}.nii.gz")
@@ -20,21 +61,36 @@ def calculate_metrics(pred_dir, gt_dir):
             print(f"Warning: Prediction not found for {case_id}, skipping.")
             continue
             
-        gt_data = np.expand_dims(nib.load(gt_path).get_fdata(), axis=(0, 1))
-        gt_data[gt_data > 0] = 1
+        # Load data
+        gt_data = nib.load(gt_path).get_fdata()
+        pred_data = nib.load(pred_path).get_fdata()
         
-        pred_data = np.expand_dims(nib.load(pred_path).get_fdata(), axis=(0, 1))
-        pred_data[pred_data > 0] = 1
+        # Calculate metrics using paper implementation
+        dice = calculate_dice(pred_data, gt_data)
+        nsd = calculate_nsd_paper(pred_data, gt_data)
         
-        dice_metric(y_pred=pred_data, y=gt_data)
-        hausdorff_metric(y_pred=pred_data, y=gt_data)
+        dice_scores.append(dice)
+        nsd_scores.append(nsd)
         
-    mean_dice = dice_metric.aggregate().item()
-    mean_hd95 = hausdorff_metric.aggregate().item()
-    return mean_dice * 100, mean_hd95
+        print(f"Case {case_id}: DICE={dice:.4f}, NSD={nsd:.4f}")
+    
+    # Calculate mean metrics
+    mean_dice = np.mean(dice_scores) * 100  # Convert to percentage
+    mean_nsd = np.mean(nsd_scores) * 100    # Convert to percentage
+    
+    # Calculate standard deviation
+    std_dice = np.std(dice_scores) * 100
+    std_nsd = np.std(nsd_scores) * 100
+    
+    print(f"\nSummary Statistics:")
+    print(f"Mean DICE: {mean_dice:.2f}% ± {std_dice:.2f}%")
+    print(f"Mean NSD: {mean_nsd:.2f}% ± {std_nsd:.2f}%")
+    print(f"Number of cases: {len(dice_scores)}")
+    
+    return mean_dice, mean_nsd, std_dice, std_nsd
 
 def main():
-    parser = argparse.ArgumentParser(description="Wrapper to evaluate a segmentation model.")
+    parser = argparse.ArgumentParser(description="Wrapper to evaluate a segmentation model with DICE and NSD metrics (paper implementation).")
     parser.add_argument('--test_data_dir', type=str, required=True)
     parser.add_argument('--gt_dir', type=str, required=True)
     parser.add_argument('--trained_model_path', type=str, required=True)
@@ -65,12 +121,18 @@ def main():
     subprocess.run(inference_command, check=True)
     print("--- Inference completed. ---")
     
-    print("\n--- Calculating metrics ---")
-    avg_dice, avg_nsd_proxy = calculate_metrics(args.output_pred_dir, args.gt_dir)
-    print(f"Average Dice: {avg_dice:.2f}%")
-    print(f"Average 95% HD (NSD Proxy): {avg_nsd_proxy:.2f}")
+    print("\n--- Calculating DICE and NSD metrics (paper implementation) ---")
+    avg_dice, avg_nsd, std_dice, std_nsd = calculate_metrics(args.output_pred_dir, args.gt_dir)
     
-    results_df = pd.DataFrame([{'Experiment': args.experiment_name, 'Model': args.model_name, 'Dice': avg_dice, 'NSD_Proxy_HD95': avg_nsd_proxy}])
+    # Save results with standard deviations
+    results_df = pd.DataFrame([{
+        'Experiment': args.experiment_name, 
+        'Model': args.model_name, 
+        'DICE_Mean': avg_dice, 
+        'DICE_Std': std_dice,
+        'NSD_Mean': avg_nsd, 
+        'NSD_Std': std_nsd
+    }])
     
     if os.path.exists(args.results_csv):
         results_df.to_csv(args.results_csv, mode='a', header=False, index=False)
