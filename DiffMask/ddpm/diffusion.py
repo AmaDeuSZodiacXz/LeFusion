@@ -738,16 +738,33 @@ class Trainer(object):
 
     def load(self, milestone, map_location=None, **kwargs):
         if milestone == -1:
-            all_milestones = [int(p.stem.split('-')[-1])
-                              for p in Path(self.results_folder).glob('**/*.pt')]
-            assert len(
-                all_milestones) > 0, 'need to have at least one milestone to load from latest checkpoint (milestone == -1)'
-            milestone = max(all_milestones)
+            # First try to find model-{milestone}.pt files
+            model_files = list(Path(self.results_folder).glob('model-*.pt'))
+            if model_files:
+                all_milestones = [int(p.stem.split('-')[-1]) for p in model_files]
+                milestone = max(all_milestones)
+                checkpoint_path = str(self.results_folder / f'model-{milestone}.pt')
+            else:
+                # If no model-*.pt files, look for diffmask.pt or other .pt files
+                pt_files = list(Path(self.results_folder).glob('*.pt'))
+                if pt_files:
+                    # Use the most recently modified .pt file
+                    checkpoint_path = str(max(pt_files, key=lambda p: p.stat().st_mtime))
+                    print(f"Loading latest checkpoint: {checkpoint_path}")
+                else:
+                    raise FileNotFoundError(f"No checkpoint files found in {self.results_folder}")
+        else:
+            # If milestone is a string (file path), use it directly
+            if isinstance(milestone, str):
+                checkpoint_path = milestone
+            else:
+                # If milestone is a number, construct the path
+                checkpoint_path = str(self.results_folder / f'model-{milestone}.pt')
 
         if map_location:
-            data = torch.load(milestone, map_location=map_location)
+            data = torch.load(checkpoint_path, map_location=map_location)
         else:
-            data = torch.load(milestone)
+            data = torch.load(checkpoint_path)
 
         self.step = data['step']
         self.model.load_state_dict(data['model'], **kwargs)
