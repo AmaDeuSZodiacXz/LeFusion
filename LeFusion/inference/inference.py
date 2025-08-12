@@ -34,10 +34,16 @@ except:
 
 
 def perturb_tensor(tensor, mean=0.0, std=1.0, bili=0.1):
-    perturbation = th.normal(mean, std, size=tensor.size())
-    perturbation -= perturbation.mean()
+    device = tensor.device
+    dtype = tensor.dtype
+    perturbation = th.normal(mean, std, size=tensor.size(), device=device, dtype=dtype)
+    perturbation = perturbation - perturbation.mean()
     max_perturbation = tensor.abs() * bili
-    perturbation = perturbation / perturbation.abs().max() * max_perturbation
+    # Avoid division by zero
+    denom = perturbation.abs().max()
+    if denom == 0:
+        return tensor
+    perturbation = perturbation / denom * max_perturbation
     perturbed_tensor = tensor + perturbation
     return perturbed_tensor
 
