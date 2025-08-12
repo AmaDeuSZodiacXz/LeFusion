@@ -100,6 +100,30 @@ class SyntheticDataGenerator:
         print(f"⚠️ No files in normal_dir. Fallback to pathological Image dir: {pathological_image_dir} ({fallback_count} files)")
         return str(pathological_image_dir)
 
+    def _run_streaming(self, cmd: list) -> int:
+        """Run a command and stream its output to the terminal in real-time.
+        Returns the process return code.
+        """
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env
+            )
+            assert process.stdout is not None
+            for line in process.stdout:
+                print(line, end="")
+            process.stdout.close()
+            return process.wait()
+        except Exception as e:
+            print(f"❌ Error launching process: {e}")
+            return 1
+
     def generate_lefusion(self, dataset, model_type, output_dir):
         """Generate synthetic data using LeFusion"""
         print(f"\n🎨 Generating LeFusion synthetic data")
@@ -135,9 +159,10 @@ class SyntheticDataGenerator:
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
         
         # Build command based on dataset (use absolute paths; hydra may chdir)
+        py = sys.executable
         if dataset == "lidc":
             cmd = [
-                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                py, "-u", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
                 f"dataset_root_dir={root_dir}",
@@ -153,7 +178,7 @@ class SyntheticDataGenerator:
             ]
         elif dataset == "emidec":
             cmd = [
-                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                py, "-u", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
                 f"dataset_root_dir={root_dir}",
@@ -170,23 +195,14 @@ class SyntheticDataGenerator:
             print(f"❌ Unknown dataset: {dataset}")
             return False
         
-        # Execute command
-        try:
-            print(f"💻 Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-            
-            if result.returncode == 0:
-                print(f"✅ LeFusion generation completed successfully")
-                return True
-            else:
-                print(f"❌ LeFusion generation failed")
-                print(f"Error: {result.stderr}")
-                return False
-        except subprocess.TimeoutExpired:
-            print(f"⏰ Timeout after 1 hour")
-            return False
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        # Execute command (streaming)
+        print(f"💻 Running: {' '.join(cmd)}")
+        rc = self._run_streaming(cmd)
+        if rc == 0:
+            print(f"✅ LeFusion generation completed successfully")
+            return True
+        else:
+            print(f"❌ LeFusion generation failed (exit {rc})")
             return False
         
     def generate_lefusion_h(self, dataset, model_type, output_dir):
@@ -221,9 +237,10 @@ class SyntheticDataGenerator:
         os.makedirs(output_dir / "imagesTr", exist_ok=True)
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
         
+        py = sys.executable
         if dataset == "lidc":
             cmd = [
-                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                py, "-u", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
                 f"dataset_root_dir={root_dir}",
@@ -239,7 +256,7 @@ class SyntheticDataGenerator:
             ]
         elif dataset == "emidec":
             cmd = [
-                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                py, "-u", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
                 f"dataset_root_dir={root_dir}",
@@ -256,21 +273,14 @@ class SyntheticDataGenerator:
             print(f"❌ Unknown dataset: {dataset}")
             return False
         
-        try:
-            print(f"💻 Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-            if result.returncode == 0:
-                print(f"✅ LeFusion-H generation completed successfully")
-                return True
-            else:
-                print(f"❌ LeFusion-H generation failed")
-                print(f"Error: {result.stderr}")
-                return False
-        except subprocess.TimeoutExpired:
-            print(f"⏰ Timeout after 1 hour")
-            return False
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        # Execute command (streaming)
+        print(f"💻 Running: {' '.join(cmd)}")
+        rc = self._run_streaming(cmd)
+        if rc == 0:
+            print(f"✅ LeFusion-H generation completed successfully")
+            return True
+        else:
+            print(f"❌ LeFusion-H generation failed (exit {rc})")
             return False
             
     def generate_diffmask_enhancement(self, dataset, model_type, input_dir, output_dir):
