@@ -96,19 +96,6 @@ def main(conf: DictConfig):
     idx = 0
     for batch in iter(dl):
         for type in range(conf.types):
-            print("idx:",idx+1)
-            print("type_of_cond:", type+1)
-            if data_type == 'lidc':
-                hist = th.tensor(cluster_centers[type])
-                hist = perturb_tensor(tensor=hist)
-                hist = hist.unsqueeze(0)
-            elif data_type == 'emidec':
-                hist_1 = perturb_tensor(th.tensor(cluster_centers[0]))
-                hist_2 = perturb_tensor(th.tensor(cluster_centers[1]))
-                hist = th.cat((hist_1, hist_2), dim=0).to(device)
-            for k in batch.keys():
-                if isinstance(batch[k], th.Tensor):
-                    batch[k] = batch[k].to(device)
             model_kwargs = {}
             model_kwargs["gt"] = batch['GT']
             gt_keep_mask = batch.get('gt_keep_mask')
@@ -140,6 +127,25 @@ def main(conf: DictConfig):
                 if all_exist:
                     print(f"Skip idx {idx+1}, type {type+1} - outputs already exist")
                     continue
+
+            # Only print progress when we actually generate for this idx/type
+            print("idx:", idx+1)
+            print("type_of_cond:", type+1)
+
+            if data_type == 'lidc':
+                hist = th.tensor(cluster_centers[type])
+                hist = perturb_tensor(tensor=hist)
+                hist = hist.unsqueeze(0)
+            elif data_type == 'emidec':
+                hist_1 = perturb_tensor(th.tensor(cluster_centers[0]))
+                hist_2 = perturb_tensor(th.tensor(cluster_centers[1]))
+                hist = th.cat((hist_1, hist_2), dim=0).to(device)
+            for k in batch.keys():
+                if isinstance(batch[k], th.Tensor):
+                    batch[k] = batch[k].to(device)
+            for k in batch.keys():
+                if isinstance(batch[k], th.Tensor):
+                    batch[k] = batch[k].to(device)
 
             sample_fn = diffusion.p_sample_loop_repaint
 
