@@ -7,12 +7,12 @@ def get_inference_dataloader(dataset_root_dir, test_txt_dir,batch_size=1, drop_l
     if data_type == 'lidc':
         train_dataset = LIDCInDataset(root_dir=dataset_root_dir, test_txt_dir=test_txt_dir)
         loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=drop_last
+            train_dataset, batch_size=batch_size, shuffle=False, num_workers=2, drop_last=drop_last
         )
     elif data_type == 'emidec':
         train_dataset = EMIDECInDataset(root_dir=dataset_root_dir)
         loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=drop_last
+            train_dataset, batch_size=batch_size, shuffle=False, num_workers=2, drop_last=drop_last
         )
     return loader
 
