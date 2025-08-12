@@ -51,11 +51,17 @@ def main():
     training_command = [
         'python',
         main_script_path,
-        '--data_root', training_data_path,      # Changed from --data_root_path
-        '--logdir', args.output_model_dir,      # Changed from --checkpoints_path
+        '--data_root', training_data_path,
+        '--logdir', args.output_model_dir,
         '--model_name', args.model_name,
-        '--max_epochs', '200',                  # Changed from --num_epochs
-        '--save_checkpoint'                     # Added flag to ensure model is saved
+        '--max_epochs', '200',
+        '--save_checkpoint',
+        '--datafold_dir', 'datasets/LIDC_real',
+        '--tumor_type', 'liver',
+        '--organ_type', 'liver',
+        '--fold', '0',
+        '--workers', '1',  # ลดจาก 4 เป็น 1
+        '--cache_rate', '0.0'  # ลด cache rate เป็น 0 เพื่อความเร็ว
     ]
     
     print("\n--- Starting segmentation training ---")

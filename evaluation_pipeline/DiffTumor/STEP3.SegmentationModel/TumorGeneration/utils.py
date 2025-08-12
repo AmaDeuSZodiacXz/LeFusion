@@ -205,7 +205,7 @@ def get_fixed_geo(mask_scan, tumor_type, organ_type):
 
     return geo_mask
 
-def synt_model_prepare(device, vqgan_ckpt='TumorGeneration/model_weight/AutoencoderModel.ckpt', diffusion_ckpt='TumorGeneration/model_weight/', fold=0, organ='liver'):
+def synt_model_prepare(device, vqgan_ckpt='DiffTumor/STEP3.SegmentationModel/TumorGeneration/model_weight/AutoencoderModel.ckpt', diffusion_ckpt='DiffTumor/STEP3.SegmentationModel/TumorGeneration/model_weight/', fold=0, organ='liver'):
     with initialize(config_path="diffusion_config/"):
         cfg=compose(config_name="ddpm.yaml")
     print('diffusion_ckpt',diffusion_ckpt)

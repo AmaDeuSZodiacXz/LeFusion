@@ -94,7 +94,7 @@ def main():
     parser.add_argument('--test_data_dir', type=str, required=True)
     parser.add_argument('--gt_dir', type=str, required=True)
     parser.add_argument('--trained_model_path', type=str, required=True)
-    parser.add_argument('--model_name', type=str, choices=['SwinUNETR', 'nnUNet'], default='SwinUNETR')
+    parser.add_argument('--model_name', type=str, choices=['swinunetr', 'nnunet'], default='swinunetr')
     parser.add_argument('--output_pred_dir', type=str, required=True)
     parser.add_argument('--results_csv', type=str, required=True)
     parser.add_argument('--experiment_name', type=str, required=True)
@@ -108,12 +108,15 @@ def main():
     inference_command = [
         'python',
         main_script_path,
-        '--phase', 'test',
-        '--data_root_path', os.path.dirname(args.test_data_dir.rstrip('/')),
+        '--data_root', args.test_data_dir,
         '--model_name', args.model_name,
-        '--checkpoints_path', os.path.dirname(args.trained_model_path),
-        '--load_checkpoint_path', args.trained_model_path,
-        '--output_path', args.output_pred_dir
+        '--checkpoint', args.trained_model_path,
+        '--logdir', args.output_pred_dir,
+        '--datafold_dir', 'datasets/LIDC_real',
+        '--tumor_type', 'liver',
+        '--organ_type', 'liver',
+        '--fold', '0',
+        '--max_epochs', '0'  # Skip training, only do inference
     ]
     
     print("\n--- Starting segmentation inference ---")

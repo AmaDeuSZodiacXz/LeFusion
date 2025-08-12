@@ -7,7 +7,7 @@ diffusion_img_size: ???
 diffusion_depth_size: ???
 diffusion_num_channels: ???
 dim_mults: [1,2,4,8]
-batch_size: ???
+batch_size: 1  
 
 test_txt_dir: ''
 dataset_root_dir: ???

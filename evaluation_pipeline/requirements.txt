@@ -1,0 +1,55 @@
+# LeFusion Evaluation Pipeline Requirements
+# Core dependencies for paper evaluation pipeline
+
+# Deep Learning Framework
+torch>=1.9.0
+torchvision>=0.10.0
+
+# Medical Image Processing
+nibabel>=3.2.0
+SimpleITK>=2.0.0
+monai>=1.0.0
+
+# Data Processing
+numpy>=1.21.0
+pandas>=1.3.0
+scipy>=1.7.0
+
+# Image Processing
+opencv-python>=4.5.0
+Pillow>=8.0.0
+matplotlib>=3.4.0
+
+# Configuration and Utilities
+omegaconf>=2.1.0
+hydra-core>=1.1.0
+pyyaml>=5.4.0
+
+# Machine Learning
+scikit-learn>=1.0.0
+
+# Visualization and Logging
+tensorboard>=2.7.0
+tqdm>=4.62.0
+
+# File and Path Handling
+pathlib2>=2.3.0
+
+# Additional Libraries for LeFusion
+blobfile>=0.13.0
+einops-exts>=0.0.4
+rotary-embedding-torch>=0.2.0
+
+# Surface Distance Library (for NSD calculation)
+# Note: This is installed from local directory:
+# DiffTumor/STEP3.SegmentationModel/external/surface-distance/
+# Run: pip install -e DiffTumor/STEP3.SegmentationModel/external/surface-distance/
+
+# Optional: For GPU acceleration
+# cupy-cuda11x>=9.0.0  # Uncomment if using CUDA 11.x
+# cupy-cuda12x>=9.0.0  # Uncomment if using CUDA 12.x
+
+# Development and Testing (optional)
+pytest>=6.0.0
+black>=21.0.0
+flake8>=3.9.0 

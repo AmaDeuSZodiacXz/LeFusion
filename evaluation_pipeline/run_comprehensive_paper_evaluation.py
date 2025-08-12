@@ -1,62 +1,198 @@
 #!/usr/bin/env python3
 """
-Comprehensive Paper Evaluation Pipeline for LeFusion
-Reproduces the exact evaluation table from the paper with all methods
+LeFusion Comprehensive Paper Evaluation Pipeline
+Reproducing the exact evaluation table from the paper
 """
 
-import argparse
-import subprocess
 import os
+import sys
+import subprocess
+import argparse
 import pandas as pd
-import numpy as np
 from datetime import datetime
-import shutil
+import time
+import signal
+
+# Global variable to track if we should stop
+should_stop = False
+
+def signal_handler(signum, frame):
+    """Handle interrupt signals gracefully"""
+    global should_stop
+    print("\n🛑 Received interrupt signal. Stopping gracefully...")
+    should_stop = True
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+def check_gpu_status():
+    """Check GPU status and memory"""
+    try:
+        # Check if CUDA is available
+        import torch
+        if torch.cuda.is_available():
+            gpu_count = torch.cuda.device_count()
+            print(f"🔍 GPU Status: {gpu_count} GPU(s) available")
+            
+            for i in range(gpu_count):
+                props = torch.cuda.get_device_properties(i)
+                memory_allocated = torch.cuda.memory_allocated(i) / 1024**3  # GB
+                memory_reserved = torch.cuda.memory_reserved(i) / 1024**3  # GB
+                print(f"   GPU {i}: {props.name}")
+                print(f"     Memory: {memory_allocated:.2f}GB allocated, {memory_reserved:.2f}GB reserved")
+        else:
+            print("⚠️ CUDA not available - using CPU")
+            
+    except Exception as e:
+        print(f"❌ Error checking GPU status: {e}")
+
+def check_system_resources():
+    """Check system memory and CPU usage"""
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+        cpu_percent = psutil.cpu_percent(interval=1)
+        
+        print(f"🔍 System Resources:")
+        print(f"   Memory: {memory.percent}% used ({memory.used/1024**3:.1f}GB / {memory.total/1024**3:.1f}GB)")
+        print(f"   CPU: {cpu_percent}% used")
+        
+    except ImportError:
+        print("⚠️ psutil not available - cannot check system resources")
+    except Exception as e:
+        print(f"❌ Error checking system resources: {e}")
+
+def check_dataset_loading_complete(timeout=60):
+    """Check if dataset loading is complete by monitoring output"""
+    print("🔍 Checking dataset loading status...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        # Check if loading is complete by looking for specific patterns
+        # This is a simple heuristic - in practice you might want more sophisticated checks
+        time.sleep(2)
+        print("⏳ Still waiting for dataset loading...")
+
+def execute_command_with_realtime_output(cmd, description, timeout=1800):  # เพิ่ม timeout เป็น 30 นาที
+    """Execute command with real-time output and timeout protection"""
+    print(f"🔧 {description}")
+    print(f"💻 Command: {' '.join(cmd)}")
+    
+    try:
+        # Execute command with real-time output
+        process = subprocess.Popen(
+            cmd, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.PIPE, 
+            text=True, 
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Log output in real-time with timeout
+        stdout_lines = []
+        stderr_lines = []
+        start_time = time.time()
+        last_output_time = time.time()
+        
+        while True:
+            # Check timeout
+            if time.time() - start_time > timeout:
+                print(f"⏰ Timeout after {timeout} seconds for {description}")
+                process.terminate()
+                return False, ''.join(stdout_lines), f"Timeout after {timeout} seconds"
+            
+            # Check if no output for too long (potential hang)
+            if time.time() - last_output_time > 300:  # 5 minutes without output
+                print(f"⚠️ No output for 5 minutes, checking process status...")
+                if process.poll() is None:
+                    print(f"❌ Process appears to be hanging, terminating...")
+                    process.terminate()
+                    return False, ''.join(stdout_lines), "Process hanging - no output for 5 minutes"
+            
+            # Try to read with timeout
+            try:
+                stdout_line = process.stdout.readline()
+                stderr_line = process.stderr.readline()
+                
+                if stdout_line:
+                    print(f"📤 {stdout_line.strip()}")
+                    stdout_lines.append(stdout_line)
+                    last_output_time = time.time()
+                
+                if stderr_line:
+                    print(f"⚠️ {stderr_line.strip()}")
+                    stderr_lines.append(stderr_line)
+                    last_output_time = time.time()
+                
+                # Check if process has finished
+                if process.poll() is not None:
+                    break
+                
+                # Add progress indicator every 2 minutes  
+                elapsed = time.time() - start_time
+                if elapsed > 0 and elapsed % 120 < 0.1:  # Every ~2 minutes
+                    print(f"⏱️ {description} running for {elapsed:.1f} seconds...")
+                    
+            except Exception as e:
+                print(f"❌ Error reading output: {e}")
+                break
+        
+        # Get return code
+        return_code = process.wait()
+        
+        if return_code == 0:
+            print(f"✅ {description} completed successfully")
+            return True, ''.join(stdout_lines), ''.join(stderr_lines)
+        else:
+            print(f"❌ {description} failed with return code {return_code}")
+            return False, ''.join(stdout_lines), ''.join(stderr_lines)
+            
+    except Exception as e:
+        print(f"❌ Exception during {description}: {e}")
+        return False, "", str(e)
 
 class PaperEvaluationPipeline:
     def __init__(self):
-        self.base_dir = "evaluation_pipeline"
+        self.base_dir = "."
         self.experiments_dir = "paper_experiments"
         self.results_csv = "comprehensive_paper_results.csv"
         
-        # Create main experiment directory
-        os.makedirs(self.experiments_dir, exist_ok=True)
+        # Available methods and model types
+        self.methods = ["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask"]
+        self.model_types = ["pretrained", "from_scratch"]
+        self.segmentation_models = ["nnunet", "swinunetr"]
+    
+    def create_experiment_logger(self, method, model_type, segmentation_model):
+        """Create a simple print-based logger for an experiment"""
+        experiment_name = f"{method}_{model_type}_{segmentation_model}"
         
+        print(f"🔬 EXPERIMENT: {experiment_name}")
+        print("=" * 60)
+        
+        return None, None  # No logger object, no log file path
+    
     def setup_experiment_structure(self):
-        """Create organized directory structure for all experiments"""
-        structure = {
-            # Pretrained Models
-            "pretrained": {
-                "lefusion": "synthetic/pretrained/lefusion",
-                "lefusion_h": "synthetic/pretrained/lefusion_h", 
-                "lefusion_h_diffmask": "synthetic/pretrained/lefusion_h_diffmask",
-                "baseline": "synthetic/pretrained/baseline"
-            },
-            # From Scratch Models
-            "from_scratch": {
-                "lefusion": "synthetic/from_scratch/lefusion",
-                "lefusion_h": "synthetic/from_scratch/lefusion_h",
-                "lefusion_h_diffmask": "synthetic/from_scratch/lefusion_h_diffmask",
-                "baseline": "synthetic/from_scratch/baseline"
-            },
-            # Training Results
-            "training": {
-                "nnunet": "training/nnunet",
-                "swinunetr": "training/swinunetr"
-            },
-            # Evaluation Results
-            "evaluation": "evaluation_results"
-        }
+        """Create directory structure for experiments"""
+        print("Setting up experiment directory structure...")
         
-        for category, paths in structure.items():
-            if isinstance(paths, dict):
-                for name, path in paths.items():
-                    full_path = os.path.join(self.experiments_dir, path)
-                    os.makedirs(full_path, exist_ok=True)
-                    print(f"Created: {full_path}")
-            else:
-                full_path = os.path.join(self.experiments_dir, paths)
-                os.makedirs(full_path, exist_ok=True)
-                print(f"Created: {full_path}")
+        # Create synthetic data directories
+        for model_type in self.model_types:
+            for method in self.methods:
+                dir_path = os.path.join(self.experiments_dir, f"synthetic/{model_type}/{method}")
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"Created: {dir_path}")
+        
+        # Create training directories
+        for seg_model in self.segmentation_models:
+            dir_path = os.path.join(self.experiments_dir, f"training/{seg_model}")
+            os.makedirs(dir_path, exist_ok=True)
+            print(f"Created: {dir_path}")
+        
+        # Create evaluation results directory
+        os.makedirs(os.path.join(self.experiments_dir, "evaluation_results"), exist_ok=True)
+        print(f"Created: {self.experiments_dir}/evaluation_results")
     
     def generate_synthetic_data_pretrained(self, method):
         """Generate synthetic data using pretrained models"""
@@ -77,8 +213,12 @@ class PaperEvaluationPipeline:
                 "test_txt_dir=../data/LIDC/Pathological/test.txt",
                 f"target_img_path={output_dir}/imagesTr",
                 f"target_label_path={output_dir}/labelsTr",
-                "batch_size=4",
-                "types=3"
+                "batch_size=1",  # เปลี่ยนจาก 4 เป็น 1
+                "types=3",
+                "diffusion_img_size=64",
+                "diffusion_depth_size=32",
+                "diffusion_num_channels=1",
+                "cond_dim=16"
             ]
             
         elif method == "lefusion_h":
@@ -91,8 +231,12 @@ class PaperEvaluationPipeline:
                 "test_txt_dir=../data/LIDC/Pathological/test.txt",
                 f"target_img_path={output_dir}/imagesTr",
                 f"target_label_path={output_dir}/labelsTr",
-                "batch_size=4",
-                "types=3"
+                "batch_size=1",  # เปลี่ยนจาก 4 เป็น 1
+                "types=3",
+                "diffusion_img_size=64",
+                "diffusion_depth_size=32",
+                "diffusion_num_channels=1",
+                "cond_dim=16"
             ]
             
         elif method == "lefusion_h_diffmask":
@@ -120,16 +264,23 @@ class PaperEvaluationPipeline:
             # Baseline - no synthetic data generation needed
             print("Baseline method - no synthetic data generation required")
             return True
-            
-        try:
-            print(f"Running command: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True, cwd=self.base_dir)
-            print(f"✓ Synthetic data generated for {method} (pretrained)")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to generate synthetic data for {method}: {e}")
+        
+        else:
+            print(f"❌ Unknown method: {method}")
             return False
-    
+        
+        success, stdout, stderr = execute_command_with_realtime_output(
+            cmd, f"Generate synthetic data for {method} (pretrained)"
+        )
+        
+        if success:
+            print(f"✅ Synthetic data generated successfully for {method}")
+            return True
+        else:
+            print(f"❌ Failed to generate synthetic data for {method}")
+            print(f"Error: {stderr}")
+            return False
+
     def generate_synthetic_data_from_scratch(self, method):
         """Generate synthetic data using from-scratch models"""
         print(f"\n{'='*60}")
@@ -144,13 +295,17 @@ class PaperEvaluationPipeline:
             cmd = [
                 "python", "../LeFusion/inference/inference.py",
                 "data_type=lidc",
-                "model_path=../LeFusion/LeFusion_Model/LIDC/model-50.pt",
+                "model_path=../LeFusion/LeFusion_Model/LIDC/lidc_from_scratch.pt",
                 "dataset_root_dir=../data/LIDC/Normal/Image",
                 "test_txt_dir=../data/LIDC/Pathological/test.txt",
                 f"target_img_path={output_dir}/imagesTr",
                 f"target_label_path={output_dir}/labelsTr",
-                "batch_size=4",
-                "types=3"
+                "batch_size=1",
+                "types=3",
+                "diffusion_img_size=64",
+                "diffusion_depth_size=32",
+                "diffusion_num_channels=1",
+                "cond_dim=16"
             ]
             
         elif method == "lefusion_h":
@@ -158,13 +313,17 @@ class PaperEvaluationPipeline:
             cmd = [
                 "python", "../LeFusion/inference/inference.py",
                 "data_type=lidc",
-                "model_path=../LeFusion/LeFusion_Model/LIDC/model-50.pt",
+                "model_path=../LeFusion/LeFusion_Model/LIDC/lidc_from_scratch.pt",
                 "dataset_root_dir=../data/LIDC/Normal/Image",
                 "test_txt_dir=../data/LIDC/Pathological/test.txt",
                 f"target_img_path={output_dir}/imagesTr",
                 f"target_label_path={output_dir}/labelsTr",
-                "batch_size=4",
-                "types=3"
+                "batch_size=1",
+                "types=3",
+                "diffusion_img_size=64",
+                "diffusion_depth_size=32",
+                "diffusion_num_channels=1",
+                "cond_dim=16"
             ]
             
         elif method == "lefusion_h_diffmask":
@@ -185,137 +344,207 @@ class PaperEvaluationPipeline:
                 "diffusion_depth_size=32",
                 "out_dim=1",
                 "unet_num_channels=2",
-                "model_path=../DiffMask/DiffMask_Model/model-80.pt"
+                "model_path=../DiffMask/DiffMask_Model/diffmask_from_scratch.pt"
             ]
             
         elif method == "baseline":
             # Baseline - no synthetic data generation needed
             print("Baseline method - no synthetic data generation required")
             return True
-            
-        try:
-            print(f"Running command: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True, cwd=self.base_dir)
-            print(f"✓ Synthetic data generated for {method} (from scratch)")
-            return True
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Failed to generate synthetic data for {method}: {e}")
+        
+        else:
+            print(f"❌ Unknown method: {method}")
             return False
-    
+        
+        success, stdout, stderr = execute_command_with_realtime_output(
+            cmd, f"Generate synthetic data for {method} (from scratch)"
+        )
+        
+        if success:
+            print(f"✅ Synthetic data generated successfully for {method}")
+            return True
+        else:
+            print(f"❌ Failed to generate synthetic data for {method}")
+            print(f"Error: {stderr}")
+            return False
+
     def train_segmentation_model(self, method, model_type, segmentation_model):
-        """Train segmentation model (nnU-Net or SwinUNETR)"""
+        """Train segmentation model with combined real and synthetic data"""
         print(f"\n{'='*60}")
-        print(f"TRAINING SEGMENTATION MODEL: {method.upper()} + {segmentation_model.upper()}")
-        print(f"Model Type: {model_type}")
+        print(f"TRAINING SEGMENTATION MODEL: {segmentation_model.upper()}")
+        print(f"Method: {method}, Model Type: {model_type}")
         print(f"{'='*60}")
         
-        # Setup paths
+        # Determine data paths
         real_data_dir = "datasets/LIDC_real"
-        synthetic_data_dir = os.path.join(self.experiments_dir, f"synthetic/{model_type}/{method}")
-        training_output_dir = os.path.join(self.experiments_dir, f"training/{segmentation_model.lower()}/{method}_{model_type}")
+        synthetic_data_dir = None
         
+        if method != "baseline":
+            synthetic_data_dir = os.path.join(self.experiments_dir, f"synthetic/{model_type}/{method}")
+            if not os.path.exists(synthetic_data_dir):
+                print(f"❌ Synthetic data directory not found: {synthetic_data_dir}")
+                return False
+        
+        # Setup training output directory
+        training_output_dir = os.path.join(self.experiments_dir, f"training/{segmentation_model}/{method}_{model_type}")
         os.makedirs(training_output_dir, exist_ok=True)
         
-        # Training command
-        train_cmd = [
+        # Prepare training command
+        cmd = [
             "python", "run_segmentation_training.py",
             "--real_data_dir", real_data_dir,
             "--model_name", segmentation_model,
             "--output_model_dir", training_output_dir
         ]
         
-        # Add synthetic data if not baseline
-        if method != "baseline" and os.path.exists(synthetic_data_dir):
-            train_cmd.extend(["--synthetic_data_dir", synthetic_data_dir])
+        if synthetic_data_dir:
+            cmd.extend(["--synthetic_data_dir", synthetic_data_dir])
         
-        try:
-            print(f"Running command: {' '.join(train_cmd)}")
-            subprocess.run(train_cmd, check=True, cwd=self.base_dir)
-            print(f"✓ Training completed for {method} + {segmentation_model}")
+        success, stdout, stderr = execute_command_with_realtime_output(
+            cmd, f"Train {segmentation_model} for {method} ({model_type})"
+        )
+        
+        if success:
+            print(f"✅ Training completed successfully for {segmentation_model}")
             return True
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Training failed for {method} + {segmentation_model}: {e}")
+        else:
+            print(f"❌ Training failed for {segmentation_model}")
+            print(f"Error: {stderr}")
             return False
-    
+
     def evaluate_model(self, method, model_type, segmentation_model):
         """Evaluate trained segmentation model"""
         print(f"\n{'='*60}")
-        print(f"EVALUATING MODEL: {method.upper()} + {segmentation_model.upper()}")
-        print(f"Model Type: {model_type}")
+        print(f"EVALUATING SEGMENTATION MODEL: {segmentation_model.upper()}")
+        print(f"Method: {method}, Model Type: {model_type}")
         print(f"{'='*60}")
         
         # Setup paths
-        real_data_dir = "datasets/LIDC_real"
-        training_output_dir = os.path.join(self.experiments_dir, f"training/{segmentation_model.lower()}/{method}_{model_type}")
-        evaluation_output_dir = os.path.join(self.experiments_dir, f"evaluation_results/{method}_{model_type}_{segmentation_model.lower()}")
+        test_data_dir = "datasets/LIDC_real"
+        gt_dir = "datasets/LIDC_real/labelsTs"
+        trained_model_path = os.path.join(self.experiments_dir, f"training/{segmentation_model}/{method}_{model_type}")
+        output_pred_dir = os.path.join(self.experiments_dir, f"evaluation_results/{method}_{model_type}_{segmentation_model}")
+        results_csv = self.results_csv
+        experiment_name = f"{method}_{model_type}_{segmentation_model}"
         
-        os.makedirs(evaluation_output_dir, exist_ok=True)
-        
-        # Evaluation command
-        eval_cmd = [
+        # Prepare evaluation command
+        cmd = [
             "python", "run_segmentation_evaluation.py",
-            "--test_data_dir", real_data_dir,
-            "--gt_dir", f"{real_data_dir}/labelsTs",
-            "--trained_model_path", f"{training_output_dir}/best_metric_model.pth",
+            "--test_data_dir", test_data_dir,
+            "--gt_dir", gt_dir,
+            "--trained_model_path", trained_model_path,
             "--model_name", segmentation_model,
-            "--output_pred_dir", evaluation_output_dir,
-            "--results_csv", self.results_csv,
-            "--experiment_name", f"{method}_{model_type}_{segmentation_model.lower()}"
+            "--output_pred_dir", output_pred_dir,
+            "--results_csv", results_csv,
+            "--experiment_name", experiment_name
         ]
         
-        try:
-            print(f"Running command: {' '.join(eval_cmd)}")
-            subprocess.run(eval_cmd, check=True, cwd=self.base_dir)
-            print(f"✓ Evaluation completed for {method} + {segmentation_model}")
+        success, stdout, stderr = execute_command_with_realtime_output(
+            cmd, f"Evaluate {segmentation_model} for {method} ({model_type})"
+        )
+        
+        if success:
+            print(f"✅ Evaluation completed successfully for {segmentation_model}")
             return True
-        except subprocess.CalledProcessError as e:
-            print(f"✗ Evaluation failed for {method} + {segmentation_model}: {e}")
+        else:
+            print(f"❌ Evaluation failed for {segmentation_model}")
+            print(f"Error: {stderr}")
             return False
-    
+
     def run_complete_pipeline(self, methods=None, model_types=None, segmentation_models=None):
-        """Run complete evaluation pipeline"""
+        """Run the complete paper evaluation pipeline with real-time output"""
         if methods is None:
-            methods = ["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask"]
+            methods = self.methods
         if model_types is None:
-            model_types = ["pretrained", "from_scratch"]
+            model_types = self.model_types
         if segmentation_models is None:
-            segmentation_models = ["nnUNet", "SwinUNETR"]
-        
-        print("LeFusion Comprehensive Paper Evaluation Pipeline")
+            segmentation_models = self.segmentation_models
+            
+        print("🚀 STARTING COMPREHENSIVE PAPER EVALUATION PIPELINE")
         print("=" * 80)
-        print(f"Methods: {methods}")
-        print(f"Model Types: {model_types}")
-        print(f"Segmentation Models: {segmentation_models}")
+        print(f"📋 Methods: {methods}")
+        print(f"📋 Model Types: {model_types}")
+        print(f"📋 Segmentation Models: {segmentation_models}")
+        print("=" * 80)
         
-        # Setup directory structure
+        # Check system resources at start
+        print("🔍 Checking system resources...")
+        check_gpu_status()
+        check_system_resources()
+        
+        # Setup experiment structure
+        print("📁 Setting up experiment directory structure...")
         self.setup_experiment_structure()
         
-        # Run experiments
+        total_experiments = len(methods) * len(model_types) * len(segmentation_models)
+        current_experiment = 0
+        
         for method in methods:
             for model_type in model_types:
-                # Generate synthetic data
-                if model_type == "pretrained":
-                    success = self.generate_synthetic_data_pretrained(method)
-                else:
-                    success = self.generate_synthetic_data_from_scratch(method)
-                
-                if not success:
-                    print(f"Skipping {method} {model_type} due to synthetic data generation failure")
-                    continue
-                
-                # Train and evaluate segmentation models
                 for segmentation_model in segmentation_models:
-                    # Train model
-                    train_success = self.train_segmentation_model(method, model_type, segmentation_model)
-                    if not train_success:
-                        print(f"Skipping evaluation for {method} {model_type} {segmentation_model} due to training failure")
+                    # Check for interrupt
+                    if should_stop:
+                        print("🛑 Pipeline stopped by user request")
+                        return
+                    
+                    current_experiment += 1
+                    print(f"🔄 PROGRESS: {current_experiment}/{total_experiments}")
+                    print(f"🔬 Running: {method} + {model_type} + {segmentation_model}")
+                    print("-" * 60)
+                    
+                    # Create experiment-specific logger
+                    _, _ = self.create_experiment_logger(method, model_type, segmentation_model)
+                    
+                    # Check resources before starting experiment
+                    print("🔍 Checking resources before experiment...")
+                    check_gpu_status()
+                    check_system_resources()
+                    
+                    start_time = time.time()
+                    
+                    # Generate synthetic data
+                    if method != "baseline":
+                        print(f"🎨 Generating synthetic data for {method} ({model_type})...")
+                        if model_type == "pretrained":
+                            success = self.generate_synthetic_data_pretrained(method)
+                        else:
+                            success = self.generate_synthetic_data_from_scratch(method)
+                        
+                        if not success:
+                            print(f"❌ Failed to generate synthetic data for {method}")
+                            continue
+                        print(f"✅ Synthetic data generated for {method}")
+                    
+                    # Train segmentation model
+                    print(f"🏋️ Training {segmentation_model} for {method} ({model_type})...")
+                    print("⏳ Waiting for dataset loading to complete...")
+                    time.sleep(5)  # รอ 5 วินาทีให้ dataset load เสร็จ
+                    success = self.train_segmentation_model(method, model_type, segmentation_model)
+                    if not success:
+                        print(f"❌ Failed to train {segmentation_model} for {method}")
                         continue
+                    print(f"✅ Training completed for {segmentation_model}")
                     
                     # Evaluate model
-                    self.evaluate_model(method, model_type, segmentation_model)
+                    print(f"📊 Evaluating {segmentation_model} for {method} ({model_type})...")
+                    success = self.evaluate_model(method, model_type, segmentation_model)
+                    if not success:
+                        print(f"❌ Failed to evaluate {segmentation_model} for {method}")
+                        continue
+                    print(f"✅ Evaluation completed for {segmentation_model}")
+                    
+                    elapsed_time = time.time() - start_time
+                    print(f"⏱️ Time taken: {elapsed_time:.2f} seconds")
+                    print("=" * 60)
+                    print(f"🎉 EXPERIMENT COMPLETED: {method}_{model_type}_{segmentation_model}")
+                    print("=" * 60)
         
         # Generate final results table
+        print("📊 Generating final results table...")
         self.generate_paper_results_table()
+        
+        print("🎉 PIPELINE COMPLETED SUCCESSFULLY!")
+        print(f"📁 Results saved to: {self.results_csv}")
     
     def generate_paper_results_table(self):
         """Generate final results table in paper format"""
@@ -376,12 +605,10 @@ class PaperEvaluationPipeline:
         # Save summary to file
         summary_file = f"paper_evaluation_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         summary_df.to_csv(summary_file, index=False)
-        print(f"\nSummary saved to: {summary_file}")
-        
-        return summary_df
+        print(f"Summary saved to: {summary_file}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Comprehensive paper evaluation pipeline for LeFusion")
+    parser = argparse.ArgumentParser(description="LeFusion Comprehensive Paper Evaluation Pipeline")
     parser.add_argument('--methods', nargs='+', 
                        default=['baseline', 'lefusion', 'lefusion_h', 'lefusion_h_diffmask'],
                        help='Methods to evaluate')
@@ -389,10 +616,10 @@ def main():
                        default=['pretrained', 'from_scratch'],
                        help='Model types (pretrained/from_scratch)')
     parser.add_argument('--segmentation_models', nargs='+', 
-                       default=['nnUNet', 'SwinUNETR'],
+                       default=['nnunet', 'swinunetr'],
                        help='Segmentation models to evaluate')
     parser.add_argument('--resume', action='store_true',
-                       help='Resume from existing results')
+                       help='Resume from existing progress')
     args = parser.parse_args()
     
     pipeline = PaperEvaluationPipeline()
