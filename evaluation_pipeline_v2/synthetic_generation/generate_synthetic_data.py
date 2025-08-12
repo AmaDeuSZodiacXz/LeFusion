@@ -60,6 +60,46 @@ class SyntheticDataGenerator:
         path = self.output_dir / dataset / model_type / method / data_type
         return path
         
+    def _resolve_path(self, maybe_rel_path: str) -> str:
+        """Resolve a path relative to repo root (evaluation_pipeline_v2 parent) and return absolute string"""
+        p = Path(maybe_rel_path)
+        if not p.is_absolute():
+            # repo root is evaluation_pipeline_v2/.. (LeFusion project root)
+            repo_root = self.base_dir.parent
+            p = (repo_root / p).resolve()
+        return str(p)
+
+    def _check_lidc_inputs(self, dataset: str) -> bool:
+        """Preflight checks for LIDC inputs"""
+        normal_dir = self._resolve_path(self.config['datasets'][dataset]['normal_dir'])
+        test_file = self._resolve_path(self.config['datasets'][dataset]['test_file'])
+        if not Path(normal_dir).exists():
+            print(f"❌ Normal image dir not found: {normal_dir}")
+            return False
+        nii_list = list(Path(normal_dir).rglob('*.nii.gz'))
+        print(f"🔎 Found {len(nii_list)} .nii.gz under {normal_dir}")
+        if len(nii_list) == 0:
+            print("❌ No .nii.gz files found. Please verify dataset path.")
+            return False
+        if not Path(test_file).exists():
+            print(f"❌ test.txt not found: {test_file}")
+            return False
+        return True
+
+    def _select_lidc_root_dir(self) -> str:
+        """Pick LIDC root_dir. Prefer config normal_dir if it contains nii.gz, else fallback to Pathological/Image."""
+        normal_dir = Path(self._resolve_path(self.config['datasets']['lidc']['normal_dir']))
+        pathological_base = Path(self._resolve_path(self.config['datasets']['lidc']['pathological_dir']))
+        pathological_image_dir = pathological_base / 'Image'
+        normal_count = len(list(normal_dir.rglob('*.nii.gz'))) if normal_dir.exists() else 0
+        if normal_count > 0:
+            print(f"✅ Using LIDC normal_dir: {normal_dir} ({normal_count} files)")
+            return str(normal_dir)
+        # fallback
+        fallback_count = len(list(pathological_image_dir.rglob('*.nii.gz'))) if pathological_image_dir.exists() else 0
+        print(f"⚠️ No files in normal_dir. Fallback to pathological Image dir: {pathological_image_dir} ({fallback_count} files)")
+        return str(pathological_image_dir)
+
     def generate_lefusion(self, dataset, model_type, output_dir):
         """Generate synthetic data using LeFusion"""
         print(f"\n🎨 Generating LeFusion synthetic data")
@@ -72,26 +112,38 @@ class SyntheticDataGenerator:
             model_path = self.config['model_weights']['pretrained']['lefusion'][dataset]
         else:
             model_path = self.config['model_weights']['from_scratch']['lefusion'][dataset]
-            
+        
+        model_path = self._resolve_path(model_path)
+        
         # Check if model exists
         if not Path(model_path).exists():
             print(f"❌ Model not found: {model_path}")
             return False
-            
+        
+        # Preflight checks and resolve dataset root
+        if dataset == "lidc":
+            root_dir = self._select_lidc_root_dir()
+            test_file = self._resolve_path(self.config['datasets'][dataset]['test_file'])
+            if not Path(test_file).exists():
+                print(f"❌ test.txt not found: {test_file}")
+                return False
+        else:
+            root_dir = self._resolve_path(self.config['datasets'][dataset]['normal_dir'])
+        
         # Create output directories
         os.makedirs(output_dir / "imagesTr", exist_ok=True)
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
         
-        # Build command based on dataset
+        # Build command based on dataset (use absolute paths; hydra may chdir)
         if dataset == "lidc":
             cmd = [
-                "python", "../LeFusion/inference/inference.py",
+                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
-                f"dataset_root_dir={self.config['datasets'][dataset]['normal_dir']}",
-                f"test_txt_dir={self.config['datasets'][dataset]['test_file']}",
-                f"target_img_path={output_dir}/imagesTr",
-                f"target_label_path={output_dir}/labelsTr",
+                f"dataset_root_dir={root_dir}",
+                f"test_txt_dir={test_file}",
+                f"target_img_path={str((output_dir / 'imagesTr').resolve())}",
+                f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=3",  # For LIDC
                 "diffusion_img_size=64",
@@ -101,12 +153,12 @@ class SyntheticDataGenerator:
             ]
         elif dataset == "emidec":
             cmd = [
-                "python", "../LeFusion/inference/inference.py",
+                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
                 f"data_type={dataset}",
                 f"model_path={model_path}",
-                f"dataset_root_dir={self.config['datasets'][dataset]['normal_dir']}",
-                f"target_img_path={output_dir}/imagesTr",
-                f"target_label_path={output_dir}/labelsTr",
+                f"dataset_root_dir={root_dir}",
+                f"target_img_path={str((output_dir / 'imagesTr').resolve())}",
+                f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=1",  # For EMIDEC
                 "diffusion_img_size=64",
@@ -117,7 +169,7 @@ class SyntheticDataGenerator:
         else:
             print(f"❌ Unknown dataset: {dataset}")
             return False
-            
+        
         # Execute command
         try:
             print(f"💻 Running: {' '.join(cmd)}")
@@ -130,80 +182,83 @@ class SyntheticDataGenerator:
                 print(f"❌ LeFusion generation failed")
                 print(f"Error: {result.stderr}")
                 return False
-                
         except subprocess.TimeoutExpired:
             print(f"⏰ Timeout after 1 hour")
             return False
         except Exception as e:
             print(f"❌ Error: {e}")
             return False
-            
+        
     def generate_lefusion_h(self, dataset, model_type, output_dir):
-        """Generate synthetic data using LeFusion-H (histogram conditioned)"""
+        """Generate synthetic data using LeFusion-H (histogram conditioned).
+        Note: inference.py always uses histogram conditioning via clusters; no extra flag needed.
+        """
         print(f"\n🎨 Generating LeFusion-H synthetic data")
         print(f"   Dataset: {dataset}")
         print(f"   Model Type: {model_type}")
         print(f"   Output: {output_dir}")
         
-        # LeFusion-H uses the same model but with histogram conditioning
-        # This requires the histogram clusters file
+        # LeFusion-H uses the same model but we keep the pipeline outputs separate
         if model_type == "pretrained":
             model_path = self.config['model_weights']['pretrained']['lefusion'][dataset]
         else:
             model_path = self.config['model_weights']['from_scratch']['lefusion'][dataset]
-            
-        # Check if model exists
+        model_path = self._resolve_path(model_path)
+        
         if not Path(model_path).exists():
             print(f"❌ Model not found: {model_path}")
             return False
-            
-        # Create output directories
+        
+        if dataset == "lidc":
+            root_dir = self._select_lidc_root_dir()
+            test_file = self._resolve_path(self.config['datasets'][dataset]['test_file'])
+            if not Path(test_file).exists():
+                print(f"❌ test.txt not found: {test_file}")
+                return False
+        else:
+            root_dir = self._resolve_path(self.config['datasets'][dataset]['normal_dir'])
+        
         os.makedirs(output_dir / "imagesTr", exist_ok=True)
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
         
-        # Build command with histogram conditioning
         if dataset == "lidc":
             cmd = [
-                "python", "../LeFusion/inference/inference.py",
-                f"data_type={dataset}_hist",  # Use histogram version
+                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                f"data_type={dataset}",
                 f"model_path={model_path}",
-                f"dataset_root_dir={self.config['datasets'][dataset]['normal_dir']}",
-                f"test_txt_dir={self.config['datasets'][dataset]['test_file']}",
-                f"target_img_path={output_dir}/imagesTr",
-                f"target_label_path={output_dir}/labelsTr",
+                f"dataset_root_dir={root_dir}",
+                f"test_txt_dir={test_file}",
+                f"target_img_path={str((output_dir / 'imagesTr').resolve())}",
+                f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=3",
                 "diffusion_img_size=64",
                 "diffusion_depth_size=32",
                 "diffusion_num_channels=1",
-                "cond_dim=16",
-                "use_histogram=True"  # Enable histogram conditioning
+                "cond_dim=16"
             ]
         elif dataset == "emidec":
             cmd = [
-                "python", "../LeFusion/inference/inference.py",
-                f"data_type={dataset}_hist",
+                "python", str((self.base_dir.parent / "LeFusion" / "inference" / "inference.py").resolve()),
+                f"data_type={dataset}",
                 f"model_path={model_path}",
-                f"dataset_root_dir={self.config['datasets'][dataset]['normal_dir']}",
-                f"target_img_path={output_dir}/imagesTr",
-                f"target_label_path={output_dir}/labelsTr",
+                f"dataset_root_dir={root_dir}",
+                f"target_img_path={str((output_dir / 'imagesTr').resolve())}",
+                f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=1",
                 "diffusion_img_size=64",
                 "diffusion_depth_size=32",
                 "diffusion_num_channels=1",
-                "cond_dim=16",
-                "use_histogram=True"
+                "cond_dim=16"
             ]
         else:
             print(f"❌ Unknown dataset: {dataset}")
             return False
-            
-        # Execute command
+        
         try:
             print(f"💻 Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-            
             if result.returncode == 0:
                 print(f"✅ LeFusion-H generation completed successfully")
                 return True
@@ -211,7 +266,6 @@ class SyntheticDataGenerator:
                 print(f"❌ LeFusion-H generation failed")
                 print(f"Error: {result.stderr}")
                 return False
-                
         except subprocess.TimeoutExpired:
             print(f"⏰ Timeout after 1 hour")
             return False
