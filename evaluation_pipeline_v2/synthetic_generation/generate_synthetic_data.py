@@ -61,12 +61,10 @@ class SyntheticDataGenerator:
         return path
         
     def _resolve_path(self, maybe_rel_path: str) -> str:
-        """Resolve a path relative to repo root (evaluation_pipeline_v2 parent) and return absolute string"""
+        """Resolve a path relative to evaluation_pipeline_v2 directory and return absolute string"""
         p = Path(maybe_rel_path)
         if not p.is_absolute():
-            # repo root is evaluation_pipeline_v2/.. (LeFusion project root)
-            repo_root = self.base_dir.parent
-            p = (repo_root / p).resolve()
+            p = (self.base_dir / p).resolve()
         return str(p)
 
     def _check_lidc_inputs(self, dataset: str) -> bool:
