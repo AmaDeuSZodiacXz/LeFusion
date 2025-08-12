@@ -22,9 +22,15 @@ class SyntheticDataGenerator:
         script_dir = Path(__file__).parent  # synthetic_generation/
         self.base_dir = script_dir.parent   # evaluation_pipeline_v2/
         
-        # Load config with proper path resolution
-        config_full_path = self.base_dir / config_path
-        with open(config_full_path, 'r') as f:
+        # Load config with robust path resolution
+        candidate_path = Path(config_path)
+        if not candidate_path.is_absolute():
+            candidate_path = (self.base_dir / candidate_path).resolve()
+        if not candidate_path.exists():
+            # Fallback to default inside evaluation_pipeline_v2/configs/
+            fallback_path = (self.base_dir / "configs" / "experiment_config.yaml").resolve()
+            candidate_path = fallback_path
+        with open(candidate_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
         # Set output directory relative to evaluation_pipeline_v2
@@ -32,6 +38,7 @@ class SyntheticDataGenerator:
         self.checkpoint_file = self.output_dir / "generation_checkpoint.json"
         
         print(f"📁 Base directory: {self.base_dir}")
+        print(f"🧩 Config file: {candidate_path}")
         print(f"📁 Output directory: {self.output_dir}")
         
     def load_checkpoint(self):
@@ -377,7 +384,7 @@ def main():
                         help="Methods to generate (default: all)")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from checkpoint")
-    parser.add_argument("--config", default="../configs/experiment_config.yaml",
+    parser.add_argument("--config", default="configs/experiment_config.yaml",
                         help="Path to config file")
     
     args = parser.parse_args()

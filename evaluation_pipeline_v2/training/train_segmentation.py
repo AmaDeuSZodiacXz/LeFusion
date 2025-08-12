@@ -28,12 +28,14 @@ class SegmentationTrainer:
         with open(config_full_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        # Set directories relative to evaluation_pipeline_v2
-        self.output_dir = self.base_dir / "trained_models"
+        # Set directories relative to evaluation_pipeline_v2 using config
+        output_cfg = (self.config or {}).get("output", {})
+        trained_models_dir_name = output_cfg.get("trained_models", "trained_models")
+        self.output_dir = self.base_dir / trained_models_dir_name
         self.checkpoint_file = self.output_dir / "training_checkpoint.json"
         
         print(f"📁 Base directory: {self.base_dir}")
-        print(f"📁 Output directory: {self.output_dir}")
+        print(f"📁 Output directory (trained models): {self.output_dir}")
         
     def load_checkpoint(self):
         """Load checkpoint for resume capability"""

@@ -37,8 +37,10 @@ class ModelEvaluator:
         with open(config_full_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        # Set directories relative to evaluation_pipeline_v2
-        self.results_dir = self.base_dir / "evaluation_results"
+        # Set directories relative to evaluation_pipeline_v2 using config
+        output_cfg = (self.config or {}).get("output", {})
+        evaluation_results_dir_name = output_cfg.get("evaluation_results", "evaluation_results")
+        self.results_dir = self.base_dir / evaluation_results_dir_name
         os.makedirs(self.results_dir, exist_ok=True)
         
         print(f"📁 Base directory: {self.base_dir}")
