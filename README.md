@@ -6,6 +6,22 @@ LeFusion has been accepted by [ICLR'25](https://openreview.net/forum?id=3b9SKkRA
 
 The top illustrates the training process of LeFusion, while the bottom shows the inference. During training, LeFusion avoids learning unnecessary background generation using a lesion-focused loss. In inference, by combining forward-diffused real backgrounds with reverse-diffused generated foregrounds, LeFusion ensures high-quality background generation. Additionally, we introduce histogram-based texture control to handle multi-peak lesions and multi-channel decomposition for multi-class lesions. ([arXiv](https://arxiv.org/abs/2403.14066))
 
+## 🚀 Quick Start with Evaluation Pipeline V2
+
+```bash
+# Clone and setup
+git clone https://github.com/AmaDeuSZodiacXz/LeFusion.git
+cd LeFusion/evaluation_pipeline_v2
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run complete evaluation pipeline
+python run_complete_evaluation.py --dataset lidc --model-types pretrained
+```
+
+For detailed evaluation pipeline documentation, see [Evaluation Pipeline V2 Guide](#evaluation-pipeline-v2-complete-guide) below.
+
 
 ## :bookmark_tabs:Data Preparation
 
@@ -357,3 +373,329 @@ Special thanks to [@pedr0sorio](https://github.com/pedr0sorio) for developing th
 ✅ **The preprocessed EMIDEC dataset**  🚀
 
 ✅ **The LeFusion model applied to EMIDEC**  🚀
+
+✅ **Comprehensive Evaluation Pipeline V2** 🚀
+
+---
+
+# 🆕 Evaluation Pipeline V2 - Complete Guide
+
+## 📊 Overview
+
+The Evaluation Pipeline V2 is a complete, modular system for reproducing the exact results from the LeFusion paper. It provides end-to-end functionality from synthetic data generation to final evaluation metrics.
+
+### Key Features
+- ✅ **Modular Architecture**: Separate modules for synthetic generation, training, and evaluation
+- ✅ **Resume Capability**: All phases support checkpoint-based resuming
+- ✅ **Paper Reproduction**: Exact methods and metrics (DICE & NSD) from the research paper
+- ✅ **Multiple Model Support**: Both pretrained and from-scratch models
+- ✅ **Organized Structure**: Clear folder organization for all outputs
+
+## 🔬 Supported Methods & Results
+
+| Method | Description | Training Data | DICE (↑) | NSD (↑) |
+|--------|-------------|---------------|----------|---------|
+| **Baseline** | Real pathological only | P | 78.26 | 88.90 |
+| **LeFusion** | Basic diffusion | P+P' | 78.77 | 89.25 |
+| **LeFusion-H** | Histogram-conditioned | P+P', P+N' | 80.62 | 90.90 |
+| **LeFusion-H+DiffMask** | DiffMask enhanced | P+N', P+N'', P+P'+N'' | **83.44** | **93.35** |
+
+*P: Real pathological, P': Synthetic from pathological, N': Synthetic from normal, N'': DiffMask enhanced*
+
+## 📁 Pipeline Structure
+
+```
+evaluation_pipeline_v2/
+├── configs/
+│   └── experiment_config.yaml      # Central configuration
+├── synthetic_generation/
+│   └── generate_synthetic_data.py  # Synthetic data generation
+├── training/
+│   └── train_segmentation.py       # Model training
+├── evaluation/
+│   └── evaluate_models.py          # Evaluation & metrics
+└── run_complete_evaluation.py      # Master orchestrator
+```
+
+---
+
+## 🎯 Phase 1: Synthetic Data Generation
+
+### Overview
+Generate synthetic pathological images using different LeFusion variants with controllable lesion synthesis.
+
+### Basic Commands
+
+```bash
+cd evaluation_pipeline_v2
+
+# Generate all methods with pretrained models
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion lefusion_h lefusion_h_diffmask
+
+# Generate specific method
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion_h
+
+# Resume from checkpoint
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --resume
+```
+
+### Model Weight Configuration
+
+Configure model paths in `configs/experiment_config.yaml`:
+
+```yaml
+model_weights:
+  pretrained:
+    lefusion:
+      lidc: "../LeFusion/LeFusion_Model/LIDC/lidc.pt"
+      emidec: "../LeFusion/LeFusion_Model/EMIDEC/emidec.pt"
+    diffmask:
+      lidc: "../DiffMask/DiffMask_Model/diffmask.pt"
+      
+  from_scratch:
+    lefusion:
+      lidc: "../LeFusion/LeFusion_Model/LIDC/model-50.pt"
+      emidec: "../LeFusion/LeFusion_Model/EMIDEC/model-50.pt"
+    diffmask:
+      lidc: "../DiffMask/DiffMask_Model/model-80.pt"
+```
+
+### Output Structure
+
+```
+synthetic_data/
+├── lidc/
+│   ├── pretrained/
+│   │   ├── lefusion/
+│   │   │   └── P_P_prime/          # Synthetic from pathological
+│   │   ├── lefusion_h/
+│   │   │   ├── P_P_prime/          # Pathological from pathological
+│   │   │   └── P_N_prime/          # Pathological from normal
+│   │   └── lefusion_h_diffmask/
+│   │       ├── P_N_prime/          # Base synthetic
+│   │       ├── P_N_double_prime/   # DiffMask enhanced
+│   │       └── P_P_prime_N_double_prime/  # Combined
+│   └── from_scratch/
+└── generation_checkpoint.json       # Resume checkpoint
+```
+
+### Data Combination Strategy
+
+| Method | Real Data | Synthetic Data | Total Training Set |
+|--------|-----------|----------------|-------------------|
+| **Baseline** | ✅ P | ❌ None | P only |
+| **LeFusion** | ✅ P | ✅ P_P_prime | P + P' |
+| **LeFusion-H** | ✅ P | ✅ P_P_prime + P_N_prime | P + P' + N' |
+| **LeFusion-H+DiffMask** | ✅ P | ✅ P_N_prime + P_N'' + P_P'+N'' | P + Enhanced |
+
+---
+
+## 🏋️ Phase 2: Training Segmentation Models
+
+### Overview
+Train nnU-Net and SwinUNETR using combinations of real and synthetic data.
+
+### Basic Commands
+
+```bash
+cd evaluation_pipeline_v2
+
+# Train all configurations
+python training/train_segmentation.py \
+    --dataset lidc \
+    --methods baseline lefusion lefusion_h lefusion_h_diffmask \
+    --model-types pretrained from_scratch \
+    --seg-models nnunet swinunetr
+
+# Train specific configuration
+python training/train_segmentation.py \
+    --dataset lidc \
+    --methods lefusion_h \
+    --model-types pretrained \
+    --seg-models nnunet
+
+# Resume training
+python training/train_segmentation.py \
+    --dataset lidc \
+    --resume
+```
+
+### Training Process
+
+1. **Data Loading**: Automatically combines real + synthetic data
+2. **Model Initialization**: nnU-Net or SwinUNETR architecture
+3. **Training**: 200 epochs with AdamW optimizer
+4. **Checkpointing**: Best model saved based on validation metrics
+
+### Configuration
+
+```yaml
+training:
+  max_epochs: 200
+  batch_size: 1
+  learning_rate: 0.0004
+  optimizer: "adamw"
+  val_every: 200
+```
+
+### Output Structure
+
+```
+trained_models/
+├── lidc/
+│   ├── baseline/pretrained/nnunet/
+│   │   ├── best_metric_model.pth
+│   │   └── training_log.txt
+│   ├── lefusion/pretrained/nnunet/
+│   ├── lefusion_h/pretrained/nnunet/
+│   └── lefusion_h_diffmask/pretrained/nnunet/
+└── training_checkpoint.json
+```
+
+---
+
+## 📊 Phase 3: Evaluation
+
+### Overview
+Evaluate trained models using DICE and NSD metrics, generating paper-formatted results.
+
+### Basic Commands
+
+```bash
+cd evaluation_pipeline_v2
+
+# Evaluate all models
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --compare-paper
+
+# Evaluate specific model
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --methods lefusion_h_diffmask \
+    --model-types pretrained \
+    --seg-models nnunet
+```
+
+### Metrics
+
+- **DICE**: Volumetric overlap coefficient (0-100%)
+- **NSD**: Normalized Surface Distance at 2mm tolerance (0-100%)
+
+### Output Format
+
+Console output matches paper table format:
+```
+Table 1: Lung Nodule Segmentation on LIDC
+=========================================================
+Methods                 Training    nnU-Net        SwinUNETR
+                       Setting     DICE   NSD     DICE   NSD
+---------------------------------------------------------
+Baseline               P           78.26  88.90   78.38  88.67
+LeFusion (Ours)        P+P'        78.77  89.25   78.43  88.54
+LeFusion-H (Ours)      P+P'        80.62  90.90   80.95  90.98
+LeFusion-H+DiffMask    P+N'        83.44  93.35   83.13  93.20
+```
+
+---
+
+## 🔄 Complete Pipeline Execution
+
+### Run Everything
+
+```bash
+cd evaluation_pipeline_v2
+
+# Full pipeline
+python run_complete_evaluation.py \
+    --dataset lidc \
+    --model-types pretrained
+
+# Quick test (baseline only)
+python run_complete_evaluation.py --quick-test
+
+# Specific methods
+python run_complete_evaluation.py \
+    --methods lefusion_h lefusion_h_diffmask \
+    --model-types pretrained
+```
+
+### Skip Phases
+
+```bash
+# Skip synthetic generation
+python run_complete_evaluation.py --skip-synthetic
+
+# Skip training
+python run_complete_evaluation.py --skip-training
+
+# Only evaluation
+python run_complete_evaluation.py --skip-synthetic --skip-training
+```
+
+---
+
+## 💻 Usage in Cloud Environments
+
+### Google Colab / Vertex AI
+
+```python
+# Setup in Colab
+!git clone https://github.com/AmaDeuSZodiacXz/LeFusion.git
+!cd LeFusion && git pull origin main
+!pip install -r evaluation_pipeline_v2/requirements.txt
+
+# Run pipeline
+!cd LeFusion/evaluation_pipeline_v2 && \
+  python run_complete_evaluation.py --dataset lidc --model-types pretrained
+```
+
+### Resource Requirements
+
+| Component | GPU Memory | Time |
+|-----------|------------|------|
+| LeFusion Generation | 8 GB | 30-45 min |
+| LeFusion-H Generation | 10 GB | 45-60 min |
+| DiffMask Enhancement | 12 GB | 60-90 min |
+| nnU-Net Training | 16 GB | 2-3 hours |
+| SwinUNETR Training | 24 GB | 3-4 hours |
+
+---
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+1. **Model weights not found**
+   - Check paths in `configs/experiment_config.yaml`
+   - Download from provided links
+
+2. **Out of memory**
+   - Reduce batch_size in config
+   - Use gradient accumulation
+
+3. **Resume not working**
+   - Check checkpoint files exist
+   - Verify checkpoint format
+
+---
+
+## 🗑️ Migration from Old Pipeline
+
+The old `evaluation_pipeline/` has been deprecated. The new V2 pipeline offers:
+
+- ✅ Better modularity and maintainability
+- ✅ Complete resume support
+- ✅ Exact paper reproduction
+- ✅ Cleaner code structure
+
+To migrate, simply use the new commands in `evaluation_pipeline_v2/` directory.
