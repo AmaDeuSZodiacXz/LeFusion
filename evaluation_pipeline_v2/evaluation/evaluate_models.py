@@ -28,12 +28,21 @@ except ImportError:
 class ModelEvaluator:
     def __init__(self, config_path="../configs/experiment_config.yaml"):
         """Initialize model evaluator with config"""
-        with open(config_path, 'r') as f:
+        # Get the evaluation_pipeline_v2 directory as base
+        script_dir = Path(__file__).parent  # evaluation/
+        self.base_dir = script_dir.parent   # evaluation_pipeline_v2/
+        
+        # Load config with proper path resolution
+        config_full_path = self.base_dir / "configs" / "experiment_config.yaml"
+        with open(config_full_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        self.base_dir = Path(".")
+        # Set directories relative to evaluation_pipeline_v2
         self.results_dir = self.base_dir / "evaluation_results"
         os.makedirs(self.results_dir, exist_ok=True)
+        
+        print(f"📁 Base directory: {self.base_dir}")
+        print(f"📁 Results directory: {self.results_dir}")
         
     def calculate_dice(self, pred, gt):
         """Calculate DICE coefficient"""

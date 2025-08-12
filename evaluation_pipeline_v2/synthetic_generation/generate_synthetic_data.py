@@ -18,12 +18,21 @@ import time
 class SyntheticDataGenerator:
     def __init__(self, config_path="configs/experiment_config.yaml"):
         """Initialize synthetic data generator with config"""
-        with open(config_path, 'r') as f:
+        # Get the evaluation_pipeline_v2 directory as base
+        script_dir = Path(__file__).parent  # synthetic_generation/
+        self.base_dir = script_dir.parent   # evaluation_pipeline_v2/
+        
+        # Load config with proper path resolution
+        config_full_path = self.base_dir / config_path
+        with open(config_full_path, 'r') as f:
             self.config = yaml.safe_load(f)
             
-        self.base_dir = Path(".")
+        # Set output directory relative to evaluation_pipeline_v2
         self.output_dir = self.base_dir / "synthetic_data"
         self.checkpoint_file = self.output_dir / "generation_checkpoint.json"
+        
+        print(f"📁 Base directory: {self.base_dir}")
+        print(f"📁 Output directory: {self.output_dir}")
         
     def load_checkpoint(self):
         """Load checkpoint for resume capability"""
