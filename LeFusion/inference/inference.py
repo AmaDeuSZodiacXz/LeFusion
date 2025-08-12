@@ -96,11 +96,27 @@ def main(conf: DictConfig):
     idx = 0
     for batch in iter(dl):
         for type in range(conf.types):
+            # Only print progress when we actually generate for this idx/type
+            print("idx:", idx+1)
+            print("type_of_cond:", type+1)
+
+            if data_type == 'lidc':
+                hist = th.tensor(cluster_centers[type], device=device)
+                hist = perturb_tensor(tensor=hist)
+                hist = hist.unsqueeze(0).to(device)
+            elif data_type == 'emidec':
+                hist_1 = perturb_tensor(th.tensor(cluster_centers[0], device=device))
+                hist_2 = perturb_tensor(th.tensor(cluster_centers[1], device=device))
+                hist = th.cat((hist_1, hist_2), dim=0).to(device)
+            for k in batch.keys():
+                if isinstance(batch[k], th.Tensor):
+                    batch[k] = batch[k].to(device)
+
             model_kwargs = {}
-            model_kwargs["gt"] = batch['GT']
+            model_kwargs["gt"] = batch['GT'].to(device)
             gt_keep_mask = batch.get('gt_keep_mask')
             if gt_keep_mask is not None:
-                model_kwargs['gt_keep_mask'] = gt_keep_mask
+                model_kwargs['gt_keep_mask'] = gt_keep_mask.to(device)
             batch_size = model_kwargs["gt"].shape[0]
 
             # Prepare output directories and file paths per item for current type; skip if all exist
@@ -127,25 +143,6 @@ def main(conf: DictConfig):
                 if all_exist:
                     print(f"Skip idx {idx+1}, type {type+1} - outputs already exist")
                     continue
-
-            # Only print progress when we actually generate for this idx/type
-            print("idx:", idx+1)
-            print("type_of_cond:", type+1)
-
-            if data_type == 'lidc':
-                hist = th.tensor(cluster_centers[type])
-                hist = perturb_tensor(tensor=hist)
-                hist = hist.unsqueeze(0)
-            elif data_type == 'emidec':
-                hist_1 = perturb_tensor(th.tensor(cluster_centers[0]))
-                hist_2 = perturb_tensor(th.tensor(cluster_centers[1]))
-                hist = th.cat((hist_1, hist_2), dim=0).to(device)
-            for k in batch.keys():
-                if isinstance(batch[k], th.Tensor):
-                    batch[k] = batch[k].to(device)
-            for k in batch.keys():
-                if isinstance(batch[k], th.Tensor):
-                    batch[k] = batch[k].to(device)
 
             sample_fn = diffusion.p_sample_loop_repaint
 
