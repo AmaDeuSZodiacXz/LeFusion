@@ -136,3 +136,12 @@ Werkzeug==2.1.2
 wrapt==1.14.1
 yarl==1.7.2
 zipp==3.8.0
+
+# Evaluation Pipeline Additional Dependencies
+# Surface Distance Library (for NSD calculation)
+# Note: Install from local directory:
+# evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance/
+# Run: pip install -e evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance/
+
+# Additional dependencies for evaluation pipeline
+pathlib2>=2.3.0
