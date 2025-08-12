@@ -116,6 +116,31 @@ def main(conf: DictConfig):
                 model_kwargs['gt_keep_mask'] = gt_keep_mask
             batch_size = model_kwargs["gt"].shape[0]
 
+            # Prepare output directories and file paths per item for current type; skip if all exist
+            if data_type == 'lidc':
+                image_fold = f"Image_{type+1}"
+                label_fold = f"Mask_{type+1}"
+                os.makedirs(os.path.join(conf.target_img_path, image_fold), exist_ok=True)
+                os.makedirs(os.path.join(conf.target_label_path, label_fold), exist_ok=True)
+
+                all_exist = True
+                output_img_paths = []
+                output_label_paths = []
+                for i in range(batch_size):
+                    gt_name = batch['GT_name'][i]
+                    name_part, extension = gt_name.rsplit('.nii.gz', 1)[0], '.nii.gz'
+                    main_name, vol_part = name_part.rsplit('_CVol_', 1)
+                    mask_name = f"{main_name}_Mask_{vol_part}{extension}"
+                    img_path = os.path.join(conf.target_img_path, image_fold, gt_name)
+                    lbl_path = os.path.join(conf.target_label_path, label_fold, mask_name)
+                    output_img_paths.append(img_path)
+                    output_label_paths.append(lbl_path)
+                    if not (os.path.exists(img_path) and os.path.exists(lbl_path)):
+                        all_exist = False
+                if all_exist:
+                    print(f"Skip idx {idx+1}, type {type+1} - outputs already exist")
+                    continue
+
             sample_fn = diffusion.p_sample_loop_repaint
 
             output = sample_fn(
