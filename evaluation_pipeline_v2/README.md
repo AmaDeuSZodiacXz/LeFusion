@@ -73,12 +73,26 @@ python synthetic_generation/generate_synthetic_data.py \
     --model-type pretrained \
     --methods lefusion lefusion_h lefusion_h_diffmask
 
-# Resume from checkpoint
+# Generate synthetic data for LIDC with from-scratch models
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods lefusion lefusion_h lefusion_h_diffmask
+
+# Generate for ALL datasets (LIDC + EMIDEC) with from-scratch models
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset all \
+    --model-type from_scratch \
+    --methods lefusion lefusion_h lefusion_h_diffmask
+
+# Resume from checkpoint (continues only missing parts)
 python synthetic_generation/generate_synthetic_data.py \
     --dataset lidc \
     --model-type pretrained \
     --resume
 ```
+
+- Progress logging: during resume, the script prints "Skip idx X, type Y" for completed items and prints `idx`/`type_of_cond` only when it actually generates, so the terminal reflects true progress.
 
 **Output Structure:**
 ```
@@ -101,6 +115,8 @@ synthetic_data/
 └── emidec/
     └── [same structure]
 ```
+
+Note: a temporary folder `lefusion_h_temp/` may appear during generation of LeFusion‑H data before DiffMask enhancement. Final DiffMask outputs are written under `lefusion_h_diffmask/`.
 
 ### Phase 2: Training Segmentation Models
 
