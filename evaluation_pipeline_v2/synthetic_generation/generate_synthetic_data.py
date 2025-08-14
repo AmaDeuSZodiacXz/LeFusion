@@ -124,27 +124,44 @@ class SyntheticDataGenerator:
             return 1
 
     def _prepare_diffmask_input(self, src_img_dir: Path, src_lbl_dir: Path, staging_dir: Path) -> Path:
-        """Create a staging directory with 'Image' and 'Mask' subfolders (link/copy) for DiffMask."""
+        """Create a staging directory with 'Image' and 'Mask' subfolders (link/copy) for DiffMask.
+        Ensures mask filenames follow expected pattern: image '*_CVol_X.nii.gz' -> mask '*_CMask_X.nii.gz'.
+        Also creates empty test.txt for no filtering.
+        """
         image_dir = staging_dir / 'Image'
         mask_dir = staging_dir / 'Mask'
         os.makedirs(image_dir, exist_ok=True)
         os.makedirs(mask_dir, exist_ok=True)
-        # Link all images
-        for p in Path(src_img_dir).glob('*.nii.gz'):
-            dst = image_dir / p.name
-            if not dst.exists():
+        # Link images and create corresponding mask links with expected names
+        for img_path in Path(src_img_dir).glob('*.nii.gz'):
+            # link image
+            img_dst = image_dir / img_path.name
+            if not img_dst.exists():
                 try:
-                    os.link(p, dst)
+                    os.link(img_path, img_dst)
                 except OSError:
-                    shutil.copy2(p, dst)
-        # Link all labels
-        for p in Path(src_lbl_dir).glob('*.nii.gz'):
-            dst = mask_dir / p.name
-            if not dst.exists():
-                try:
-                    os.link(p, dst)
-                except OSError:
-                    shutil.copy2(p, dst)
+                    shutil.copy2(img_path, img_dst)
+            # derive expected mask name
+            base = img_path.name  # e.g., LIDC-IDRI-0032_CVol_21.nii.gz
+            if '_CVol_' in base:
+                main, vol = base.rsplit('_CVol_', 1)
+                expected_mask_name = f"{main}_CMask_{vol}"
+                src_mask_name = f"{main}_Mask_{vol}"
+            else:
+                # fallback generic replacement
+                expected_mask_name = base.replace('Vol_', 'Mask_')
+                src_mask_name = expected_mask_name
+            src_mask_path = Path(src_lbl_dir) / src_mask_name
+            if src_mask_path.exists():
+                mask_dst = mask_dir / expected_mask_name
+                if not mask_dst.exists():
+                    try:
+                        os.link(src_mask_path, mask_dst)
+                    except OSError:
+                        shutil.copy2(src_mask_path, mask_dst)
+        # Create empty test.txt to avoid filtering out synthetic images
+        with open(staging_dir / 'test.txt', 'w') as f:
+            f.write('')
         return staging_dir
 
     def generate_lefusion(self, dataset, model_type, output_dir):
