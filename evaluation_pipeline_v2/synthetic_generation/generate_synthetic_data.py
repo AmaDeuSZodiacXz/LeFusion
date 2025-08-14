@@ -14,6 +14,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 import time
+import shutil
 
 class SyntheticDataGenerator:
     def __init__(self, config_path="configs/experiment_config.yaml"):
@@ -121,6 +122,30 @@ class SyntheticDataGenerator:
         except Exception as e:
             print(f"❌ Error launching process: {e}")
             return 1
+
+    def _prepare_diffmask_input(self, src_img_dir: Path, src_lbl_dir: Path, staging_dir: Path) -> Path:
+        """Create a staging directory with 'Image' and 'Mask' subfolders (link/copy) for DiffMask."""
+        image_dir = staging_dir / 'Image'
+        mask_dir = staging_dir / 'Mask'
+        os.makedirs(image_dir, exist_ok=True)
+        os.makedirs(mask_dir, exist_ok=True)
+        # Link all images
+        for p in Path(src_img_dir).glob('*.nii.gz'):
+            dst = image_dir / p.name
+            if not dst.exists():
+                try:
+                    os.link(p, dst)
+                except OSError:
+                    shutil.copy2(p, dst)
+        # Link all labels
+        for p in Path(src_lbl_dir).glob('*.nii.gz'):
+            dst = mask_dir / p.name
+            if not dst.exists():
+                try:
+                    os.link(p, dst)
+                except OSError:
+                    shutil.copy2(p, dst)
+        return staging_dir
 
     def generate_lefusion(self, dataset, model_type, output_dir):
         """Generate synthetic data using LeFusion"""
@@ -282,7 +307,9 @@ class SyntheticDataGenerator:
             return False
             
     def generate_diffmask_enhancement(self, dataset, model_type, input_dir, output_dir):
-        """Enhance synthetic data with DiffMask"""
+        """Enhance synthetic data with DiffMask (generates masks). Copies images alongside.
+        Expects input_dir with imagesTr/ and labelsTr/.
+        """
         print(f"\n🎨 Enhancing with DiffMask")
         print(f"   Dataset: {dataset}")
         print(f"   Model Type: {model_type}")
@@ -294,47 +321,49 @@ class SyntheticDataGenerator:
             model_path = self.config['model_weights']['pretrained']['diffmask'][dataset]
         else:
             model_path = self.config['model_weights']['from_scratch']['diffmask'][dataset]
-            
-        # Check if model exists
+        model_path = self._resolve_path(model_path)
         if not Path(model_path).exists():
             print(f"❌ Model not found: {model_path}")
             return False
-            
-        # Create output directories
-        os.makedirs(output_dir / "imagesTr", exist_ok=True)
-        os.makedirs(output_dir / "labelsTr", exist_ok=True)
         
-        # Build DiffMask command
+        src_img = Path(input_dir) / 'imagesTr'
+        src_lbl = Path(input_dir) / 'labelsTr'
+        # Prepare staging input in expected structure
+        staging_dir = Path(output_dir).parent / '_diffmask_staging'
+        staging_dir = self._prepare_diffmask_input(src_img, src_lbl, staging_dir)
+        
+        # Ensure output dirs exist and copy images over
+        out_img = Path(output_dir) / 'imagesTr'
+        out_lbl = Path(output_dir) / 'labelsTr'
+        os.makedirs(out_img, exist_ok=True)
+        os.makedirs(out_lbl, exist_ok=True)
+        for p in src_img.glob('*.nii.gz'):
+            dst = out_img / p.name
+            if not dst.exists():
+                try:
+                    os.link(p, dst)
+                except OSError:
+                    shutil.copy2(p, dst)
+        
+        # Build DiffMask command using its Hydra config keys
+        py = sys.executable
+        lidc_test_file = self._resolve_path(self.config['datasets']['lidc']['test_file']) if dataset == 'lidc' else ''
         cmd = [
-            "python", "../DiffMask/inference/inference.py",
+            py, "-u", str((self.base_dir.parent / "DiffMask" / "inference" / "inference.py").resolve()),
             f"model_path={model_path}",
-            f"input_img_path={input_dir}/imagesTr",
-            f"input_label_path={input_dir}/labelsTr",
-            f"target_img_path={output_dir}/imagesTr",
-            f"target_label_path={output_dir}/labelsTr",
-            "batch_size=1",
-            "out_dim=1",
-            "unet_num_channels=2"
+            f"dataset_root_dir={str(staging_dir.resolve())}",
+            f"test_txt_path={lidc_test_file}",
+            f"gen_mask_path={str(out_lbl.resolve())}/",
+            "unet_num_channels=2",
+            "out_dim=1"
         ]
-        
-        # Execute command
-        try:
-            print(f"💻 Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-            
-            if result.returncode == 0:
-                print(f"✅ DiffMask enhancement completed successfully")
-                return True
-            else:
-                print(f"❌ DiffMask enhancement failed")
-                print(f"Error: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            print(f"⏰ Timeout after 1 hour")
-            return False
-        except Exception as e:
-            print(f"❌ Error: {e}")
+        print(f"💻 Running: {' '.join(cmd)}")
+        rc = self._run_streaming(cmd)
+        if rc == 0:
+            print(f"✅ DiffMask enhancement completed successfully")
+            return True
+        else:
+            print(f"❌ DiffMask enhancement failed (exit {rc})")
             return False
             
     def generate_all(self, dataset="lidc", model_type="pretrained", methods=None, resume=False):
