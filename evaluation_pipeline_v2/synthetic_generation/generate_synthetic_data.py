@@ -387,7 +387,7 @@ class SyntheticDataGenerator:
         cmd = [
             py, "-u", str((self.base_dir.parent / "DiffMask" / "inference" / "inference.py").resolve()),
             f"model_path={model_path}",
-            f"dataset_root_dir={str(staging_dir.resolve())}",
+            f"dataset_root_dir={str((staging_dir / 'Image').resolve())}",
             f"test_txt_path={lidc_test_file}",
             f"gen_mask_path={str(out_lbl.resolve())}/",
             "unet_num_channels=2",
