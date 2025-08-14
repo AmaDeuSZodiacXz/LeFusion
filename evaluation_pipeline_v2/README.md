@@ -43,6 +43,51 @@ python run_complete_evaluation.py --quick-test
 
 # Run specific methods
 python run_complete_evaluation.py --methods lefusion lefusion_h --model-types pretrained
+
+# Run ALL methods (recommended for full reproduction)
+python run_complete_evaluation.py --methods all --model-types pretrained
+```
+
+## 🎯 Command Options Explained
+
+### Synthetic Data Generation Commands
+
+| Command | Description | Use Case |
+|---------|-------------|----------|
+| `--methods all` | Generate all three methods | **Full paper reproduction** |
+| `--methods lefusion` | Generate only LeFusion | Test basic diffusion |
+| `--methods lefusion_h` | Generate LeFusion-H | Test histogram conditioning |
+| `--methods lefusion_h_diffmask` | Generate LeFusion-H+DiffMask | Test full enhancement pipeline |
+
+### Dataset and Model Options
+
+| Option | Choices | Description |
+|--------|---------|-------------|
+| `--dataset` | `lidc`, `emidec`, `all` | Which dataset(s) to process |
+| `--model-type` | `pretrained`, `from_scratch`, `all` | Which model weights to use |
+| `--resume` | Flag | Continue from last checkpoint |
+
+### Examples by Use Case
+
+```bash
+# Full paper reproduction (recommended)
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset all \
+    --model-type all \
+    --methods all
+
+# Quick test with LIDC only
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion
+
+# Production run with resume capability
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods all \
+    --resume
 ```
 
 ## 📊 Methods Supported
@@ -67,32 +112,46 @@ Where:
 ### Phase 1: Synthetic Data Generation
 
 ```bash
-# Generate synthetic data for LIDC with pretrained models
+# Generate ALL methods for LIDC with pretrained models (recommended)
 python synthetic_generation/generate_synthetic_data.py \
     --dataset lidc \
     --model-type pretrained \
-    --methods lefusion lefusion_h lefusion_h_diffmask
+    --methods all
 
-# Generate synthetic data for LIDC with from-scratch models
+# Generate ALL methods for LIDC with from-scratch models
 python synthetic_generation/generate_synthetic_data.py \
     --dataset lidc \
     --model-type from_scratch \
-    --methods lefusion lefusion_h lefusion_h_diffmask
+    --methods all
 
-# Generate for ALL datasets (LIDC + EMIDEC) with from-scratch models
+# Generate ALL methods for ALL datasets (LIDC + EMIDEC) with from-scratch models
 python synthetic_generation/generate_synthetic_data.py \
     --dataset all \
     --model-type from_scratch \
+    --methods all
+
+# Alternative: Specify methods individually
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
     --methods lefusion lefusion_h lefusion_h_diffmask
 
 # Resume from checkpoint (continues only missing parts)
 python synthetic_generation/generate_synthetic_data.py \
     --dataset lidc \
     --model-type pretrained \
+    --methods all \
     --resume
 ```
 
-- Progress logging: during resume, the script prints "Skip idx X, type Y" for completed items and prints `idx`/`type_of_cond` only when it actually generates, so the terminal reflects true progress.
+**Method Options:**
+- `--methods all` - Generate all three methods (recommended)
+- `--methods lefusion` - Generate only LeFusion
+- `--methods lefusion_h` - Generate only LeFusion-H  
+- `--methods lefusion_h_diffmask` - Generate only LeFusion-H+DiffMask
+- `--methods lefusion lefusion_h` - Generate specific combination
+
+**Progress Logging:** During resume, the script prints "Skip idx X, type Y" for completed items and prints `idx`/`type_of_cond` only when it actually generates, so the terminal reflects true progress.
 
 **Output Structure:**
 ```
@@ -121,10 +180,10 @@ Note: a temporary folder `lefusion_h_temp/` may appear during generation of LeFu
 ### Phase 2: Training Segmentation Models
 
 ```bash
-# Train all models for LIDC
+# Train ALL methods for LIDC (recommended)
 python training/train_segmentation.py \
     --dataset lidc \
-    --methods baseline lefusion lefusion_h lefusion_h_diffmask \
+    --methods all \
     --model-types pretrained from_scratch \
     --seg-models nnunet swinunetr
 
@@ -134,6 +193,13 @@ python training/train_segmentation.py \
     --methods lefusion_h \
     --model-types pretrained \
     --seg-models nnunet
+
+# Train for all datasets and methods
+python training/train_segmentation.py \
+    --dataset all \
+    --methods all \
+    --model-types all \
+    --seg-models nnunet swinunetr
 ```
 
 **Output Structure:**
@@ -157,9 +223,10 @@ trained_models/
 ### Phase 3: Evaluation
 
 ```bash
-# Evaluate all models and compare with paper
+# Evaluate ALL models and compare with paper (recommended)
 python evaluation/evaluate_models.py \
     --dataset lidc \
+    --methods all \
     --compare-paper
 
 # Evaluate specific models
@@ -167,6 +234,13 @@ python evaluation/evaluate_models.py \
     --dataset lidc \
     --methods lefusion_h_diffmask \
     --model-types pretrained \
+    --seg-models nnunet swinunetr
+
+# Evaluate all datasets and methods
+python evaluation/evaluate_models.py \
+    --dataset all \
+    --methods all \
+    --model-types all \
     --seg-models nnunet swinunetr
 ```
 

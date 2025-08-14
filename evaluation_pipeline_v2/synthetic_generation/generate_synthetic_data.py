@@ -511,7 +511,8 @@ def main():
     parser.add_argument("--model-type", choices=["pretrained", "from_scratch", "all"], default="pretrained",
                         help="Model type to use")
     parser.add_argument("--methods", nargs="+", 
-                        choices=["lefusion", "lefusion_h", "lefusion_h_diffmask"],
+                        choices=["lefusion", "lefusion_h", "lefusion_h_diffmask", "all"],
+                        default=["lefusion", "lefusion_h", "lefusion_h_diffmask"],
                         help="Methods to generate (default: all)")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from checkpoint")
@@ -526,12 +527,18 @@ def main():
     datasets = ["lidc", "emidec"] if args.dataset == "all" else [args.dataset]
     model_types = ["pretrained", "from_scratch"] if args.model_type == "all" else [args.model_type]
     
+    # Process methods - expand 'all' to individual methods
+    if "all" in args.methods:
+        methods = ["lefusion", "lefusion_h", "lefusion_h_diffmask"]
+    else:
+        methods = args.methods
+    
     for dataset in datasets:
         for model_type in model_types:
             generator.generate_all(
                 dataset=dataset,
                 model_type=model_type,
-                methods=args.methods,
+                methods=methods,
                 resume=args.resume
             )
 
