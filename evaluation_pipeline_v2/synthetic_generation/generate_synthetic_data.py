@@ -128,6 +128,10 @@ class SyntheticDataGenerator:
         Ensures staged image names use '_Vol_' and masks use '_Mask_' (as DiffMask expects).
         Supports nested Image_*/Mask_* folders and creates an empty test.txt for no filtering.
         """
+        # Clean up existing staging directory to prevent duplicates
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        
         image_dir = staging_dir / 'Image'
         mask_dir = staging_dir / 'Mask'
         os.makedirs(image_dir, exist_ok=True)
