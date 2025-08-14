@@ -90,6 +90,185 @@ python synthetic_generation/generate_synthetic_data.py \
     --resume
 ```
 
+## 🆕 From Scratch Synthetic Generation
+
+**From Scratch** models are trained from random initialization rather than using pre-trained weights. This approach:
+- Requires more training time but may achieve better performance
+- Allows customization of model architecture and training parameters
+- Useful for research and experimentation
+
+### Required Model Weights for From Scratch
+
+Before running from scratch generation, ensure these model files exist:
+
+```bash
+# LeFusion models (trained from scratch)
+../LeFusion/LeFusion_Model/LIDC/model-50.pt          # LIDC from scratch
+../LeFusion/LeFusion_Model/EMIDEC/model-50.pt        # EMIDC from scratch
+
+# DiffMask model (trained from scratch)  
+../DiffMask/DiffMask_Model/model-80.pt               # DiffMask from scratch
+```
+
+### From Scratch Commands for All Methods
+
+#### 1. Generate ALL Methods for LIDC Dataset
+
+```bash
+# Generate all three methods for LIDC from scratch
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods all \
+    --resume \
+    --config configs/experiment_config.yaml
+```
+
+**What this generates:**
+- `lefusion/P_P_prime/` - Basic LeFusion synthetic data
+- `lefusion_h/P_P_prime/` - LeFusion-H with pathological conditioning
+- `lefusion_h/P_N_prime/` - LeFusion-H with normal conditioning  
+- `lefusion_h_diffmask/P_N_prime/` - Enhanced with DiffMask
+- `lefusion_h_diffmask/P_N_double_prime/` - Further enhanced
+- `lefusion_h_diffmask/P_P_prime_N_double_prime/` - Combined enhancement
+
+#### 2. Generate ALL Methods for EMIDEC Dataset
+
+```bash
+# Generate all three methods for EMIDEC from scratch
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset emidec \
+    --model-type from_scratch \
+    --methods all \
+    --resume \
+    --config configs/experiment_config.yaml
+```
+
+#### 3. Generate ALL Methods for ALL Datasets
+
+```bash
+# Generate all methods for both LIDC and EMIDEC from scratch
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset all \
+    --model-type from_scratch \
+    --methods all \
+    --resume \
+    --config configs/experiment_config.yaml
+```
+
+### Individual Method Generation from Scratch
+
+#### Generate Only LeFusion from Scratch
+
+```bash
+# LIDC dataset
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods lefusion \
+    --resume
+
+# EMIDEC dataset  
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset emidec \
+    --model-type from_scratch \
+    --methods lefusion \
+    --resume
+```
+
+#### Generate Only LeFusion-H from Scratch
+
+```bash
+# LIDC dataset
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods lefusion_h \
+    --resume
+
+# EMIDEC dataset
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset emidec \
+    --model-type from_scratch \
+    --methods lefusion_h \
+    --resume
+```
+
+#### Generate Only LeFusion-H+DiffMask from Scratch
+
+```bash
+# LIDC dataset
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods lefusion_h_diffmask \
+    --resume
+
+# EMIDEC dataset
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset emidec \
+    --model-type from_scratch \
+    --methods lefusion_h_diffmask \
+    --resume
+```
+
+### From Scratch vs Pretrained Comparison
+
+| Aspect | From Scratch | Pretrained |
+|--------|--------------|------------|
+| **Training Time** | Longer (hours) | Faster (minutes) |
+| **Performance** | Potentially better | Baseline performance |
+| **Customization** | Full control | Limited |
+| **Use Case** | Research, optimization | Quick testing, production |
+| **Model Files** | `model-50.pt`, `model-80.pt` | `lidc.pt`, `emidec.pt`, `diffmask.pt` |
+
+### Expected Output Structure for From Scratch
+
+```
+synthetic_data/
+├── lidc/
+│   └── from_scratch/
+│       ├── lefusion/
+│       │   └── P_P_prime/
+│       │       ├── imagesTr/
+│       │       └── labelsTr/
+│       ├── lefusion_h/
+│       │   ├── P_P_prime/
+│       │   └── P_N_prime/
+│       └── lefusion_h_diffmask/
+│           ├── P_N_prime/
+│           ├── P_N_double_prime/
+│           └── P_P_prime_N_double_prime/
+└── emidec/
+    └── from_scratch/
+        └── [same structure]
+```
+
+### Resume Capability for From Scratch
+
+The `--resume` flag is especially useful for from scratch generation since it takes longer:
+
+```bash
+# Start from scratch generation
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods all
+
+# If interrupted, resume from checkpoint
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods all \
+    --resume
+```
+
+**What resume does:**
+- Skips completed methods
+- Continues from where it left off
+- Shows progress for active generation
+- Saves time on long-running processes
+
 ## 📊 Methods Supported
 
 According to the paper tables:
