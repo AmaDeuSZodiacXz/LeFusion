@@ -251,8 +251,8 @@ class SyntheticDataGenerator:
                 "types=1",  # For EMIDEC
                 "diffusion_img_size=64",
                 "diffusion_depth_size=32",
-                "diffusion_num_channels=1",
-                "cond_dim=16"
+                "diffusion_num_channels=2",  # EMIDEC uses 2 channels
+                "cond_dim=32"  # EMIDEC uses cond_dim=32
             ]
         else:
             print(f"❌ Unknown dataset: {dataset}")
@@ -329,8 +329,8 @@ class SyntheticDataGenerator:
                 "types=1",
                 "diffusion_img_size=64",
                 "diffusion_depth_size=32",
-                "diffusion_num_channels=1",
-                "cond_dim=16"
+                "diffusion_num_channels=2",  # EMIDEC uses 2 channels
+                "cond_dim=32"  # EMIDEC uses cond_dim=32
             ]
         else:
             print(f"❌ Unknown dataset: {dataset}")
