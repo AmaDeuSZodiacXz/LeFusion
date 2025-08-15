@@ -54,7 +54,37 @@ class SyntheticDataGenerator:
         os.makedirs(self.output_dir, exist_ok=True)
         with open(self.checkpoint_file, 'w') as f:
             json.dump(checkpoint, f, indent=2)
-            
+
+    def _has_files(self, directory: Path, pattern: str = "*.nii.gz") -> bool:
+        try:
+            return any(directory.rglob(pattern))
+        except Exception:
+            return False
+
+    def _method_outputs_ok(self, dataset: str, model_type: str, method: str) -> bool:
+        """Verify expected outputs exist on disk for a given method before skipping on resume."""
+        def has_img_lbl(base: Path) -> bool:
+            imgs_ok = self._has_files(base / 'imagesTr')
+            lbls_ok = self._has_files(base / 'labelsTr')
+            return imgs_ok and lbls_ok
+
+        if method == 'lefusion':
+            base = self.get_output_path(dataset, method, model_type, 'P_P_prime')
+            return has_img_lbl(base)
+        if method == 'lefusion_h':
+            base_pp = self.get_output_path(dataset, method, model_type, 'P_P_prime')
+            base_pn = self.get_output_path(dataset, method, model_type, 'P_N_prime')
+            return has_img_lbl(base_pp) and has_img_lbl(base_pn)
+        if method == 'lefusion_h_diffmask':
+            base_pn = self.get_output_path(dataset, method, model_type, 'P_N_prime')
+            base_pn2 = self.get_output_path(dataset, method, model_type, 'P_N_double_prime')
+            base_all = self.get_output_path(dataset, method, model_type, 'P_P_prime_N_double_prime')
+            # Require labels present (images are copied from temp during enhancement)
+            return self._has_files(base_pn / 'labelsTr') and \
+                   self._has_files(base_pn2 / 'labelsTr') and \
+                   self._has_files(base_all / 'labelsTr')
+        return False
+
     def get_output_path(self, dataset, method, model_type, data_type):
         """Get organized output path for synthetic data"""
         # Structure: synthetic_data/dataset/model_type/method/data_type/
@@ -215,8 +245,10 @@ class SyntheticDataGenerator:
                 print(f"❌ test.txt not found: {test_file}")
                 return False
         else:
-            root_dir = self._resolve_path(self.config['datasets'][dataset]['normal_dir'])
-        
+            # EMIDEC uses Pathological root per original script; fallback to normal_dir if not present
+            dataset_cfg = self.config['datasets'][dataset]
+            root_dir = self._resolve_path(dataset_cfg.get('pathological_dir', dataset_cfg.get('normal_dir')))
+
         # Create output directories
         os.makedirs(output_dir / "imagesTr", exist_ok=True)
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
@@ -438,9 +470,12 @@ class SyntheticDataGenerator:
             # Check if already completed
             checkpoint_key = f"{dataset}_{model_type}_{method}"
             if resume and checkpoint.get(checkpoint_key, {}).get('completed', False):
-                print(f"\n✅ Skipping {method} - already completed")
-                continue
-                
+                if self._method_outputs_ok(dataset, model_type, method):
+                    print(f"\n✅ Skipping {method} - already completed")
+                    continue
+                else:
+                    print(f"\n⚠️  Checkpoint says {method} completed, but outputs are missing; re-running")
+
             print(f"\n{'='*50}")
             print(f"Processing: {method}")
             print(f"{'='*50}")
@@ -488,8 +523,10 @@ class SyntheticDataGenerator:
                 
             # Update checkpoint
             elapsed_time = time.time() - start_time
+            # Re-validate outputs before marking completed
+            outputs_ok = success and self._method_outputs_ok(dataset, model_type, method)
             checkpoint[checkpoint_key] = {
-                'completed': success,
+                'completed': outputs_ok,
                 'timestamp': datetime.now().isoformat(),
                 'elapsed_time': elapsed_time
             }
