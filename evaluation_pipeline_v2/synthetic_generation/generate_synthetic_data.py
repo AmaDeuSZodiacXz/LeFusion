@@ -377,13 +377,21 @@ class SyntheticDataGenerator:
         out_lbl = Path(output_dir) / 'labelsTr'
         os.makedirs(out_img, exist_ok=True)
         os.makedirs(out_lbl, exist_ok=True)
-        for p in src_img.glob('*.nii.gz'):
-            dst = out_img / p.name
-            if not dst.exists():
-                try:
-                    os.link(p, dst)
-                except OSError:
-                    shutil.copy2(p, dst)
+        
+        # Copy all images recursively from Image_* subfolders
+        print(f"📁 Copying images from {src_img} to {out_img}")
+        copied_count = 0
+        for img_path in src_img.rglob('*.nii.gz'):
+            if img_path.is_file():
+                dst = out_img / img_path.name
+                if not dst.exists():
+                    try:
+                        os.link(img_path, dst)
+                        copied_count += 1
+                    except OSError:
+                        shutil.copy2(img_path, dst)
+                        copied_count += 1
+        print(f"✅ Copied {copied_count} images to {out_img}")
         
         # Build DiffMask command using its Hydra config keys
         py = sys.executable
