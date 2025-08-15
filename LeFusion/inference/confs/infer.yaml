@@ -1,12 +1,16 @@
 data_type:  ???
 
-cond_dim: ??? 
+# Default values for different datasets
+# LIDC: cond_dim=16, diffusion_num_channels=1, dim_mults=[1,2,4,8] (64 channels)
+# EMIDEC: cond_dim=32, diffusion_num_channels=2, dim_mults=[1,2,4,8] (72 channels)
+cond_dim: 16  # Will be overridden by command line
 types: ???
 
 diffusion_img_size: ???
 diffusion_depth_size: ???
-diffusion_num_channels: ???
-dim_mults: [1,2,4,8]
+diffusion_num_channels: 1  # Will be overridden by command line
+# dim_mults will be set dynamically based on dataset in inference.py
+dim_mults: [1,2,4,8]  # Default for LIDC (64 channels)
 batch_size: 1  
 
 test_txt_dir: ''
@@ -81,5 +85,5 @@ schedule_jump_params:
   t_T: 300
   n_sample: 1
   jump_length: 10 
-  jump_n_sample: 10
+  jump_n_sample: 10 
 
