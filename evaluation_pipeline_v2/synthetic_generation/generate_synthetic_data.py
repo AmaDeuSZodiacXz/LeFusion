@@ -249,8 +249,8 @@ class SyntheticDataGenerator:
                 f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=1",  # For EMIDEC
-                "diffusion_img_size=64",
-                "diffusion_depth_size=32",
+                "diffusion_img_size=72",
+                "diffusion_depth_size=10",
                 "diffusion_num_channels=2",  # EMIDEC uses 2 channels
                 "cond_dim=32"  # EMIDEC uses cond_dim=32
             ]
