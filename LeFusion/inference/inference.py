@@ -80,7 +80,7 @@ def main(conf: DictConfig):
     dim_mults = [1, 2, 4, 8]  # This gives us the multiplier pattern
 
     model = Unet3D(
-        dim=conf.diffusion_img_size,
+        dim=base_channels,  # Use detected base channels (72 for EMIDEC, 64 for LIDC)
         dim_mults=dim_mults,
         channels=conf.diffusion_num_channels,
         cond_dim=conf.cond_dim,
