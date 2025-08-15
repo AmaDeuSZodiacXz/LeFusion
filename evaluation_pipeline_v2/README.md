@@ -150,7 +150,7 @@ python synthetic_generation/generate_synthetic_data.py \
 # Generate all methods for both LIDC and EMIDEC from scratch
 python synthetic_generation/generate_synthetic_data.py \
     --dataset all \
-    --model-type from_scratch \
+    --model-type all \
     --methods all \
     --resume \
     --config configs/experiment_config.yaml
