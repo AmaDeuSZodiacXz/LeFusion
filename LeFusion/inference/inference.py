@@ -56,32 +56,9 @@ def main(conf: DictConfig):
     print("Start", data_type)
     device = dev(conf.get('device'))
 
-    # Load checkpoint first to determine the correct model architecture
-    checkpoint = load_state_dict(os.path.expanduser(conf.model_path), map_location="cpu")
-    weights_dict = checkpoint["model"]
-    
-    # Determine the base dimension from the first layer weights
-    # Look at init_conv.weight to determine the base channel dimension
-    init_conv_key = None
-    for k in weights_dict.keys():
-        if 'init_conv.weight' in k:
-            init_conv_key = k
-            break
-    
-    if init_conv_key:
-        base_channels = weights_dict[init_conv_key].shape[1]  # Input channels
-        print(f"Detected base channels: {base_channels}")
-    else:
-        # Fallback to default based on dataset
-        base_channels = 72 if data_type == 'emidec' else 64
-        print(f"Using default base channels: {base_channels}")
-
-    # Set dim_mults to match the checkpoint architecture
-    dim_mults = [1, 2, 4, 8]  # This gives us the multiplier pattern
-
     model = Unet3D(
-        dim=base_channels,  # Use detected base channels (72 for EMIDEC, 64 for LIDC)
-        dim_mults=dim_mults,
+        dim=conf.diffusion_img_size,
+        dim_mults=conf.dim_mults,
         channels=conf.diffusion_num_channels,
         cond_dim=conf.cond_dim,
     )
@@ -97,13 +74,13 @@ def main(conf: DictConfig):
     )
     diffusion.to(device)
 
-    # Clean up weights_dict keys (remove module. prefix if present)
-    cleaned_weights_dict = {}
-    for k, v in weights_dict.items():
+    weights_dict = {}
+    for k, v in (load_state_dict(os.path.expanduser(
+            conf.model_path), map_location="cpu")["model"].items()):
         new_k = k.replace('module.', '') if 'module' in k else k
-        cleaned_weights_dict[new_k] = v
+        weights_dict[new_k] = v
 
-    diffusion.load_state_dict(cleaned_weights_dict)
+    diffusion.load_state_dict(weights_dict)
 
     if conf.use_fp16:
         model.convert_to_fp16()
