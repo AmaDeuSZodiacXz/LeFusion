@@ -65,11 +65,17 @@ class SegmentationTrainer:
         
         # Get real data path
         real_data_dir = Path(self.config['datasets'][dataset]['real_data_dir'])
-        
+        if not real_data_dir.exists():
+            # Fallback to legacy evaluation_pipeline datasets
+            fallback = self.base_dir.parent / "evaluation_pipeline" / "datasets" / ("LIDC_real" if dataset == "lidc" else "EMIDEC_real")
+            if fallback.exists():
+                print(f"⚠️ real_data_dir not found at {real_data_dir}. Falling back to {fallback}")
+                real_data_dir = fallback
+                
         if method == "baseline":
             # Baseline uses only real data
             self._ensure_split_files(real_data_dir)
-            return real_data_dir
+            return real_data_dir.resolve()
             
         # For other methods, combine real and synthetic data
         synthetic_base = self.base_dir / "synthetic_data" / dataset / model_type / method
@@ -110,7 +116,7 @@ class SegmentationTrainer:
                     
         # Ensure split files exist in combined dir
         self._ensure_split_files(combined_dir)
-        return combined_dir
+        return combined_dir.resolve()
 
     def _ensure_split_files(self, data_root: Path):
         """Create train/val split files required by DiffTumor if missing.
@@ -133,7 +139,7 @@ class SegmentationTrainer:
             if not lbl.exists():
                 lbl = labels_dir / rel_name
             if lbl.exists():
-                pairs.append((f"imagesTr/{img.name}", f"labelsTr/{lbl.name}"))
+                pairs.append((f"/imagesTr/{img.name}", f"/labelsTr/{lbl.name}"))
         if not pairs:
             return
         split_idx = max(1, int(0.8 * len(pairs)))
