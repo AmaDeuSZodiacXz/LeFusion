@@ -327,7 +327,8 @@ class SyntheticDataGenerator:
                 print(f"❌ test.txt not found: {test_file}")
                 return False
         else:
-            root_dir = self._resolve_path(self.config['datasets'][dataset]['normal_dir'])
+            dataset_cfg = self.config['datasets'][dataset]
+            root_dir = self._resolve_path(dataset_cfg.get('pathological_dir', dataset_cfg.get('normal_dir')))
         
         os.makedirs(output_dir / "imagesTr", exist_ok=True)
         os.makedirs(output_dir / "labelsTr", exist_ok=True)
@@ -359,8 +360,8 @@ class SyntheticDataGenerator:
                 f"target_label_path={str((output_dir / 'labelsTr').resolve())}",
                 "batch_size=1",
                 "types=1",
-                "diffusion_img_size=64",
-                "diffusion_depth_size=32",
+                "diffusion_img_size=72",
+                "diffusion_depth_size=10",
                 "diffusion_num_channels=2",  # EMIDEC uses 2 channels
                 "cond_dim=32"  # EMIDEC uses cond_dim=32
             ]
