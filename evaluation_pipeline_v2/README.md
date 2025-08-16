@@ -150,7 +150,7 @@ python synthetic_generation/generate_synthetic_data.py \
 # Generate all methods for both LIDC and EMIDEC from scratch
 python synthetic_generation/generate_synthetic_data.py \
     --dataset all \
-    --model-type all \
+    --model-type from_scratch \
     --methods all \
     --resume \
     --config configs/experiment_config.yaml
@@ -522,3 +522,35 @@ For issues or questions about reproducing the paper results, please check:
 ---
 
 **Note**: This pipeline is designed to exactly reproduce the evaluation tables from the LeFusion paper. The modular structure allows for easy experimentation with individual components. 
+
+## 🗂️ Prepare Real Data Splits (before training)
+
+Before combining with synthetic data, create train/val split files for the original real datasets in nnU-Net layout.
+
+- Required files in each data_root:
+  - `imagesTr/` and `labelsTr/`
+  - `real_liver_train_0.txt`
+  - `real_liver_val_0.txt`
+
+You can generate them with the provided splitter:
+
+```bash
+# LIDC real data
+python ../evaluation_pipeline/create_data_splits.py \
+  # defaults to datasets/LIDC_real inside evaluation_pipeline
+
+# EMIDEC real data
+python ../evaluation_pipeline/create_data_splits.py \
+  # edit the script to set data_dir/output_dir to datasets/EMIDEC_real if needed
+```
+
+Or, let v2 trainer auto-create them on the fly (we added this): it will scan `imagesTr/labelsTr` and write the two txt files if missing. The txt lines are relative paths with a leading slash, e.g. `/imagesTr/xxx.nii.gz /labelsTr/xxx.nii.gz`, which matches DiffTumor’s expected concatenation.
+
+Verify structure (example LIDC):
+```
+../evaluation_pipeline/datasets/LIDC_real/
+├── imagesTr/
+├── labelsTr/
+├── real_liver_train_0.txt
+└── real_liver_val_0.txt
+``` 
