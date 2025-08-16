@@ -295,13 +295,16 @@ def main():
     parser.add_argument("--dataset", choices=["lidc", "emidec", "all"], default="lidc",
                         help="Dataset to train on")
     parser.add_argument("--methods", nargs="+",
-                        choices=["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask"],
+                        choices=["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask", "all"],
+                        default=["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask"],
                         help="Methods to train (default: all)")
     parser.add_argument("--model-types", nargs="+",
-                        choices=["pretrained", "from_scratch"],
+                        choices=["pretrained", "from_scratch", "all"],
+                        default=["pretrained", "from_scratch"],
                         help="Model types to use (default: all)")
     parser.add_argument("--seg-models", nargs="+",
-                        choices=["nnunet", "swinunetr"],
+                        choices=["nnunet", "swinunetr", "all"],
+                        default=["nnunet", "swinunetr"],
                         help="Segmentation models to train (default: all)")
     parser.add_argument("--resume", action="store_true",
                         help="Resume from checkpoint")
@@ -315,12 +318,21 @@ def main():
     # Process datasets
     datasets = ["lidc", "emidec"] if args.dataset == "all" else [args.dataset]
     
+    # Expand 'all' selections
+    all_methods = ["baseline", "lefusion", "lefusion_h", "lefusion_h_diffmask"]
+    all_model_types = ["pretrained", "from_scratch"]
+    all_seg_models = ["nnunet", "swinunetr"]
+    
+    methods = all_methods if (not args.methods or "all" in args.methods) else args.methods
+    model_types = all_model_types if (not args.model_types or "all" in args.model_types) else args.model_types
+    seg_models = all_seg_models if (not args.seg_models or "all" in args.seg_models) else args.seg_models
+    
     for dataset in datasets:
         trainer.train_all(
             dataset=dataset,
-            methods=args.methods,
-            model_types=args.model_types,
-            seg_models=args.seg_models,
+            methods=methods,
+            model_types=model_types,
+            seg_models=seg_models,
             resume=args.resume
         )
 
