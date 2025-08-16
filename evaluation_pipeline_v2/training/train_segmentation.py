@@ -68,6 +68,7 @@ class SegmentationTrainer:
         
         if method == "baseline":
             # Baseline uses only real data
+            self._ensure_split_files(real_data_dir)
             return real_data_dir
             
         # For other methods, combine real and synthetic data
@@ -107,8 +108,44 @@ class SegmentationTrainer:
                 if synthetic_dir.exists():
                     self._add_synthetic_data(synthetic_dir, combined_dir)
                     
+        # Ensure split files exist in combined dir
+        self._ensure_split_files(combined_dir)
         return combined_dir
-        
+
+    def _ensure_split_files(self, data_root: Path):
+        """Create train/val split files required by DiffTumor if missing.
+        Format: each line 'imagesTr/xxx.nii.gz labelsTr/xxx.nii.gz' (relative paths).
+        """
+        train_txt = data_root / "real_liver_train_0.txt"
+        val_txt = data_root / "real_liver_val_0.txt"
+        images_dir = data_root / "imagesTr"
+        labels_dir = data_root / "labelsTr"
+        if not images_dir.exists() or not labels_dir.exists():
+            return
+        if train_txt.exists() and val_txt.exists():
+            return
+        image_files = sorted([p for p in images_dir.rglob("*.nii.gz") if p.is_file()])
+        pairs = []
+        for img in image_files:
+            rel_name = img.name
+            lbl = labels_dir / rel_name.replace("_CVol_", "_Mask_") if "_CVol_" in rel_name else labels_dir / rel_name
+            # fallback: same name
+            if not lbl.exists():
+                lbl = labels_dir / rel_name
+            if lbl.exists():
+                pairs.append((f"imagesTr/{img.name}", f"labelsTr/{lbl.name}"))
+        if not pairs:
+            return
+        split_idx = max(1, int(0.8 * len(pairs)))
+        train_pairs = pairs[:split_idx]
+        val_pairs = pairs[split_idx:]
+        with open(train_txt, "w") as f:
+            for a, b in train_pairs:
+                f.write(f"{a} {b}\n")
+        with open(val_txt, "w") as f:
+            for a, b in val_pairs:
+                f.write(f"{a} {b}\n")
+                
     def _add_synthetic_data(self, source_dir, target_dir):
         """Add synthetic data to combined directory"""
         # Copy synthetic images (recursively, files only)
