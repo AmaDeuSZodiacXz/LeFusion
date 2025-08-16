@@ -111,19 +111,21 @@ class SegmentationTrainer:
         
     def _add_synthetic_data(self, source_dir, target_dir):
         """Add synthetic data to combined directory"""
-        # Copy synthetic images
-        if (source_dir / "imagesTr").exists():
-            for img in (source_dir / "imagesTr").glob("*"):
-                # Add prefix to avoid conflicts
-                new_name = f"syn_{img.name}"
-                shutil.copy2(img, target_dir / "imagesTr" / new_name)
+        # Copy synthetic images (recursively, files only)
+        images_root = source_dir / "imagesTr"
+        if images_root.exists():
+            for img in images_root.rglob("*.nii.gz"):
+                if img.is_file():
+                    new_name = f"syn_{img.name}"
+                    shutil.copy2(img, target_dir / "imagesTr" / new_name)
                 
-        # Copy synthetic labels
-        if (source_dir / "labelsTr").exists():
-            for label in (source_dir / "labelsTr").glob("*"):
-                # Add prefix to avoid conflicts
-                new_name = f"syn_{label.name}"
-                shutil.copy2(label, target_dir / "labelsTr" / new_name)
+        # Copy synthetic labels (recursively, files only)
+        labels_root = source_dir / "labelsTr"
+        if labels_root.exists():
+            for label in labels_root.rglob("*.nii.gz"):
+                if label.is_file():
+                    new_name = f"syn_{label.name}"
+                    shutil.copy2(label, target_dir / "labelsTr" / new_name)
                 
     def train_model(self, dataset, method, model_type, seg_model):
         """Train segmentation model"""
@@ -139,9 +141,10 @@ class SegmentationTrainer:
         output_dir = self.get_model_output_path(dataset, method, model_type, seg_model)
         os.makedirs(output_dir, exist_ok=True)
         
-        # Build training command
+        # Build training command (absolute path to avoid CWD issues)
+        diff_tumor_main = (self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel" / "main.py").resolve()
         cmd = [
-            "python", "../../evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/main.py",
+            "python", str(diff_tumor_main),
             "--data_root", str(training_data_dir),
             "--logdir", str(output_dir),
             "--model_name", seg_model,
