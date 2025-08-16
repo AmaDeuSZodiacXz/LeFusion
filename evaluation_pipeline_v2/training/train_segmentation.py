@@ -189,6 +189,61 @@ class SegmentationTrainer:
                     new_name = f"syn_{label.name}"
                     shutil.copy2(label, target_dir / "labelsTr" / new_name)
                 
+    def _run_streaming(self, cmd, cwd: str | None, timeout: int | None, log_path: Path | None) -> int:
+        """Run a subprocess, streaming stdout/stderr in real-time and tee to log file if provided."""
+        import subprocess
+        import threading
+        from queue import Queue, Empty
+        
+        def enqueue_output(stream, queue):
+            for line in iter(stream.readline, ''):
+                queue.put(line)
+            stream.close()
+        
+        try:
+            process = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                universal_newlines=True,
+            )
+            q: Queue[str] = Queue()
+            t = threading.Thread(target=enqueue_output, args=(process.stdout, q))
+            t.daemon = True
+            t.start()
+            log_f = None
+            if log_path is not None:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_f = open(log_path, 'a', buffering=1)
+            start_time = time.time()
+            while True:
+                if timeout and (time.time() - start_time) > timeout:
+                    process.kill()
+                    if log_f:
+                        log_f.write("\n⏰ Timeout reached. Process killed.\n")
+                        log_f.close()
+                    return -1
+                try:
+                    line = q.get_nowait()
+                except Empty:
+                    if process.poll() is not None:
+                        break
+                    time.sleep(0.1)
+                    continue
+                print(line, end='')
+                if log_f:
+                    log_f.write(line)
+            ret = process.wait()
+            if log_f:
+                log_f.flush()
+                log_f.close()
+            return ret
+        except Exception as e:
+            print(f"❌ Error running command: {e}")
+            return -1
+
     def train_model(self, dataset, method, model_type, seg_model):
         """Train segmentation model"""
         print(f"\n🏋️ Training {seg_model}")
@@ -230,21 +285,17 @@ class SegmentationTrainer:
             
         # Execute training
         try:
-            print(f"💻 Running: {' '.join(cmd[:5])}...")  # Show abbreviated command
-            
-            # Run with timeout (4 hours for training)
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
+            print(f"💻 Running: {' '.join(cmd[:5])}...")
+            # Stream logs to console and file in output_dir
+            log_path = output_dir / "training_log.txt"
+            rc = self._run_streaming(
+                cmd=cmd,
+                cwd=str((self.base_dir.parent / "evaluation_pipeline").resolve()),
                 timeout=14400,
-                cwd=str((self.base_dir.parent / "evaluation_pipeline").resolve())  # ensure relative paths resolve as in README
+                log_path=log_path,
             )
-            
-            if result.returncode == 0:
+            if rc == 0:
                 print(f"✅ Training completed successfully")
-                
-                # Check if model was saved
                 model_file = output_dir / "best_metric_model.pth"
                 if model_file.exists():
                     print(f"✅ Model saved: {model_file}")
@@ -253,10 +304,9 @@ class SegmentationTrainer:
                     print(f"⚠️ Model file not found")
                     return False
             else:
-                print(f"❌ Training failed")
-                print(f"Error: {result.stderr[-1000:]}")  # Show last 1000 chars of error
+                print(f"❌ Training failed (exit {rc})")
+                print(f"📄 See log: {log_path}")
                 return False
-                
         except subprocess.TimeoutExpired:
             print(f"⏰ Training timeout after 4 hours")
             return False
