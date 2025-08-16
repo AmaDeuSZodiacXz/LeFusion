@@ -238,7 +238,7 @@ class SegmentationTrainer:
                 capture_output=True,
                 text=True,
                 timeout=14400,
-                cwd=str(diff_tumor_main.parent)  # ensure relative paths (model_weight etc.) resolve
+                cwd=str((self.base_dir.parent / "evaluation_pipeline").resolve())  # ensure relative paths resolve as in README
             )
             
             if result.returncode == 0:
