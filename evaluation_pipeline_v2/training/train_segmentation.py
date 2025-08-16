@@ -130,16 +130,35 @@ class SegmentationTrainer:
             return
         if train_txt.exists() and val_txt.exists():
             return
-        image_files = sorted([p for p in images_dir.rglob("*.nii.gz") if p.is_file()])
+        # Build pairs by iterating labels and finding best-matching image
+        label_files = sorted([p for p in labels_dir.rglob("*.nii.gz") if p.is_file()])
         pairs = []
-        for img in image_files:
-            rel_name = img.name
-            lbl = labels_dir / rel_name.replace("_CVol_", "_Mask_") if "_CVol_" in rel_name else labels_dir / rel_name
-            # fallback: same name
-            if not lbl.exists():
-                lbl = labels_dir / rel_name
-            if lbl.exists():
-                pairs.append((f"/imagesTr/{img.name}", f"/labelsTr/{lbl.name}"))
+        for lbl in label_files:
+            lbl_name = lbl.name
+            has_syn = lbl_name.startswith("syn_")
+            core = lbl_name[4:] if has_syn else lbl_name
+            candidates = set()
+            # Common mappings
+            if "GenMask_" in core:
+                candidates.add(core.replace("GenMask_", "CVol_"))
+                candidates.add(core.replace("GenMask_", "Vol_"))
+                candidates.add(core.replace("GenMask_", ""))
+            if "_Mask_" in core:
+                candidates.add(core.replace("_Mask_", "_CVol_"))
+                candidates.add(core.replace("_Mask_", "_Vol_"))
+                candidates.add(core.replace("_Mask_", ""))
+            # Fallback to same basename
+            candidates.add(core)
+            # Reapply syn_ prefix for image search if label had it
+            images_to_try = [ ("syn_" + c) if has_syn else c for c in candidates ]
+            img_path = None
+            for cand in images_to_try:
+                test_path = images_dir / cand
+                if test_path.exists():
+                    img_path = test_path
+                    break
+            if img_path is not None:
+                pairs.append((f"/imagesTr/{img_path.name}", f"/labelsTr/{lbl.name}"))
         if not pairs:
             return
         split_idx = max(1, int(0.8 * len(pairs)))
@@ -214,7 +233,13 @@ class SegmentationTrainer:
             print(f"💻 Running: {' '.join(cmd[:5])}...")  # Show abbreviated command
             
             # Run with timeout (4 hours for training)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=14400)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=14400,
+                cwd=str(diff_tumor_main.parent)  # ensure relative paths (model_weight etc.) resolve
+            )
             
             if result.returncode == 0:
                 print(f"✅ Training completed successfully")
