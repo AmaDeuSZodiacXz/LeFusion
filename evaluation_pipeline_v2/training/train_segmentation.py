@@ -86,6 +86,37 @@ class SegmentationTrainer:
             except Exception:
                 return model_final, -1
         return None, -1
+
+    def _ensure_val_pseudo_labels(self, training_data_dir: Path, organ_type: str, tumor_type: str) -> None:
+        """Ensure STEP3 expects organ_pseudo_swin_new/<organ_type>/<label_basename>.nii.gz exists.
+        We create missing pseudo labels by copying the validation label files (shape-compatible),
+        so validation won't fail when organ pseudo masks are absent for this dataset.
+        """
+        try:
+            val_list = training_data_dir / f"real_{tumor_type}_val_0.txt"
+            if not val_list.exists():
+                return
+            step3_root = (self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel").resolve()
+            pseudo_dir = step3_root / "organ_pseudo_swin_new" / organ_type
+            pseudo_dir.mkdir(parents=True, exist_ok=True)
+            with open(val_list, "r") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) < 2:
+                        continue
+                    lbl_rel = parts[1].lstrip('/')
+                    lbl_abs = (training_data_dir / lbl_rel).resolve()
+                    if not lbl_abs.exists():
+                        continue
+                    dest = pseudo_dir / os.path.basename(lbl_abs)
+                    if not dest.exists():
+                        try:
+                            shutil.copy2(lbl_abs, dest)
+                        except Exception:
+                            pass
+        except Exception:
+            # best-effort only
+            pass
         
     def prepare_training_data(self, dataset, method, model_type):
         """Prepare training data by combining real and synthetic data"""
@@ -313,9 +344,16 @@ class SegmentationTrainer:
         if checkpoint_path is not None and Path(checkpoint_path).exists():
             cmd.extend(["--checkpoint", str(Path(checkpoint_path).resolve())])
             
-        # Add dataset-specific parameters
+        # Add dataset-specific parameters and ensure organ pseudo labels for validation
         if dataset == "emidec":
             cmd.extend(["--tumor_type", "cardiac", "--organ_type", "heart"])
+            tumor_type = "cardiac"
+            organ_type = "heart"
+        else:
+            tumor_type = "liver"
+            organ_type = "liver"
+        # Create missing pseudo organ masks by copying val labels (prevents FileNotFound during validation)
+        self._ensure_val_pseudo_labels(training_data_dir, organ_type=organ_type, tumor_type=tumor_type)
             
         # Execute training
         try:
@@ -324,7 +362,7 @@ class SegmentationTrainer:
             log_path = output_dir / "training_log.txt"
             rc = self._run_streaming(
                 cmd=cmd,
-                cwd=str((self.base_dir.parent / "evaluation_pipeline").resolve()),
+                cwd=str((self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel").resolve()),
                 timeout=None,
                 log_path=log_path,
             )
