@@ -325,7 +325,7 @@ class SegmentationTrainer:
             rc = self._run_streaming(
                 cmd=cmd,
                 cwd=str((self.base_dir.parent / "evaluation_pipeline").resolve()),
-                timeout=14400,
+                timeout=None,
                 log_path=log_path,
             )
             if rc == 0:
@@ -342,7 +342,7 @@ class SegmentationTrainer:
                 print(f"📄 See log: {log_path}")
                 return False
         except subprocess.TimeoutExpired:
-            print(f"⏰ Training timeout after 4 hours")
+            print(f"⏰ Training timeout (should not occur, no timeout set)")
             return False
         except Exception as e:
             print(f"❌ Error during training: {e}")
