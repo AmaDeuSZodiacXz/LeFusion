@@ -1,5 +1,6 @@
 ### Tumor Generateion
 import random
+import os
 import cv2
 import elasticdeform
 import numpy as np
@@ -12,6 +13,7 @@ from .ldm.ddpm import Unet3D, GaussianDiffusion, Tester
 from hydra import initialize, compose
 import torch
 import yaml
+from pathlib import Path
 
 # Random select location for tumors.
 def random_select(mask_scan, organ_type):
@@ -205,10 +207,45 @@ def get_fixed_geo(mask_scan, tumor_type, organ_type):
 
     return geo_mask
 
+def _resolve_ckpt_path_like(path_str: str) -> str:
+    """Resolve file path for checkpoints robustly relative to STEP3 root."""
+    p = Path(path_str)
+    if p.is_absolute() and p.exists():
+        return str(p)
+    step3_root = Path(__file__).resolve().parents[1]
+    s = str(path_str)
+    # Candidates: as-is relative to CWD, stripped prefix under step3_root, and direct under step3_root
+    candidates = []
+    candidates.append(Path.cwd() / s)
+    if 'DiffTumor/STEP3.SegmentationModel/' in s:
+        tail = s.split('DiffTumor/STEP3.SegmentationModel/', 1)[1]
+        candidates.append(step3_root / tail)
+    candidates.append(step3_root / s)
+    for cand in candidates:
+        try:
+            if cand.exists():
+                return str(cand.resolve())
+        except Exception:
+            continue
+    # Fallback to step3_root join
+    if 'DiffTumor/STEP3.SegmentationModel/' in s:
+        tail = s.split('DiffTumor/STEP3.SegmentationModel/', 1)[1]
+        return str((step3_root / tail).resolve())
+    return str((step3_root / s).resolve())
+
+def _resolve_ckpt_dir_like(dir_str: str) -> str:
+    d = _resolve_ckpt_path_like(dir_str)
+    if not d.endswith(os.sep):
+        d = d + os.sep
+    return d
+
 def synt_model_prepare(device, vqgan_ckpt='DiffTumor/STEP3.SegmentationModel/TumorGeneration/model_weight/AutoencoderModel.ckpt', diffusion_ckpt='DiffTumor/STEP3.SegmentationModel/TumorGeneration/model_weight/', fold=0, organ='liver'):
     with initialize(config_path="diffusion_config/"):
         cfg=compose(config_name="ddpm.yaml")
-    print('diffusion_ckpt',diffusion_ckpt)
+    # Resolve paths to be independent of current working directory
+    vqgan_ckpt = _resolve_ckpt_path_like(vqgan_ckpt)
+    diffusion_ckpt = _resolve_ckpt_dir_like(diffusion_ckpt)
+    print('diffusion_ckpt', diffusion_ckpt)
     vqgan = VQGAN.load_from_checkpoint(vqgan_ckpt)
     vqgan = vqgan.to(device)
     vqgan.eval()
