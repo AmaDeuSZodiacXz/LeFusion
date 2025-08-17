@@ -506,7 +506,11 @@ def run_training(model,
 
 
         if args.rank == 0 and args.logdir is not None and args.save_checkpoint:
+
+            # Save rolling checkpoint for resume
             save_checkpoint(model, epoch, args, best_acc=val_acc_max, filename='model_final.pt')
+            # Also persist an epoch-indexed snapshot
+            save_checkpoint(model, epoch, args, best_acc=val_acc_max, filename=f'epoch_{epoch:04d}.pt')
             if b_new_best:
                 print('Copying to model.pt new best model!!!!')
                 shutil.copyfile(os.path.join(args.logdir, 'model_final.pt'), os.path.join(args.logdir, 'model.pt'))
