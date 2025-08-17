@@ -16,6 +16,8 @@ from pathlib import Path
 import time
 import shutil
 
+import re
+
 class SegmentationTrainer:
     def __init__(self, config_path="../configs/experiment_config.yaml"):
         """Initialize segmentation trainer with config"""
@@ -55,6 +57,35 @@ class SegmentationTrainer:
         # Structure: trained_models/dataset/method/model_type/seg_model/
         path = self.output_dir / dataset / method / model_type / seg_model
         return path
+    
+    def _get_latest_checkpoint_info(self, output_dir: Path):
+        """Return (checkpoint_path, epoch_idx) if found, else (None, -1).
+        Prefers epoch_XXXX.pt, falls back to model_final.pt if present.
+        """
+        latest_epoch = -1
+        latest_file = None
+        if output_dir.exists():
+            for f in output_dir.glob('epoch_*.pt'):
+                m = re.match(r'^epoch_(\d+)\.pt$', f.name)
+                if m:
+                    e = int(m.group(1))
+                    if e > latest_epoch:
+                        latest_epoch = e
+                        latest_file = f
+        if latest_file is not None:
+            return latest_file, latest_epoch
+        # Fallback to rolling checkpoint
+        model_final = output_dir / 'model_final.pt'
+        if model_final.exists():
+            try:
+                import torch
+                ckp = torch.load(model_final, map_location='cpu')
+                e = ckp.get('epoch', -1)
+                if isinstance(e, (int, float)):
+                    return model_final, int(e)
+            except Exception:
+                return model_final, -1
+        return None, -1
         
     def prepare_training_data(self, dataset, method, model_type):
         """Prepare training data by combining real and synthetic data"""
@@ -244,7 +275,7 @@ class SegmentationTrainer:
             print(f"❌ Error running command: {e}")
             return -1
 
-    def train_model(self, dataset, method, model_type, seg_model):
+    def train_model(self, dataset, method, model_type, seg_model, checkpoint_path: Path | None = None):
         """Train segmentation model"""
         print(f"\n🏋️ Training {seg_model}")
         print(f"   Dataset: {dataset}")
@@ -278,7 +309,10 @@ class SegmentationTrainer:
             "--organ_type", "liver",
             "--fold", "0"
         ]
-        
+        # Pass checkpoint to resume if provided
+        if checkpoint_path is not None and Path(checkpoint_path).exists():
+            cmd.extend(["--checkpoint", str(Path(checkpoint_path).resolve())])
+            
         # Add dataset-specific parameters
         if dataset == "emidec":
             cmd.extend(["--tumor_type", "cardiac", "--organ_type", "heart"])
@@ -296,13 +330,13 @@ class SegmentationTrainer:
             )
             if rc == 0:
                 print(f"✅ Training completed successfully")
+                # Consider training successful; completion will be decided in caller by epoch count
                 model_file = output_dir / "best_metric_model.pth"
                 if model_file.exists():
                     print(f"✅ Model saved: {model_file}")
-                    return True
                 else:
-                    print(f"⚠️ Model file not found")
-                    return False
+                    print(f"⚠️ Model file not found (continuing)")
+                return True
             else:
                 print(f"❌ Training failed (exit {rc})")
                 print(f"📄 See log: {log_path}")
@@ -367,6 +401,23 @@ class SegmentationTrainer:
                     
                     start_time = time.time()
                     
+                    # Determine output dir and checkpoint status
+                    output_dir = self.get_model_output_path(dataset, method, model_type, seg_model)
+                    checkpoint_path, last_epoch = self._get_latest_checkpoint_info(output_dir)
+                    max_epochs = int(self.config['training']['max_epochs'])
+
+                    if resume:
+                        # If already finished, mark completed and skip
+                        if last_epoch >= max_epochs - 1:
+                            print(f"\n[{current}/{total_configs}] ✅ Skipping {checkpoint_key} - already reached {last_epoch+1}/{max_epochs} epochs")
+                            checkpoint[checkpoint_key] = {
+                                'completed': True,
+                                'timestamp': datetime.now().isoformat(),
+                                'elapsed_time': checkpoint.get(checkpoint_key, {}).get('elapsed_time', 0)
+                            }
+                            self.save_checkpoint(checkpoint)
+                            continue
+
                     # Check if synthetic data exists (if needed)
                     if method != "baseline":
                         synthetic_dir = self.base_dir / "synthetic_data" / dataset / model_type / method
@@ -375,14 +426,17 @@ class SegmentationTrainer:
                             print(f"   Please run synthetic generation first")
                             success = False
                         else:
-                            success = self.train_model(dataset, method, model_type, seg_model)
+                            success = self.train_model(dataset, method, model_type, seg_model, checkpoint_path=checkpoint_path if resume else None)
                     else:
-                        success = self.train_model(dataset, method, model_type, seg_model)
+                        success = self.train_model(dataset, method, model_type, seg_model, checkpoint_path=checkpoint_path if resume else None)
                         
                     # Update checkpoint
                     elapsed_time = time.time() - start_time
+                    # Recompute progress after this run
+                    _, updated_epoch = self._get_latest_checkpoint_info(output_dir)
+                    finished = updated_epoch >= max_epochs - 1
                     checkpoint[checkpoint_key] = {
-                        'completed': success,
+                        'completed': bool(success and finished),
                         'timestamp': datetime.now().isoformat(),
                         'elapsed_time': elapsed_time
                     }
