@@ -51,20 +51,19 @@ def organ_region_filter_out(organ_mask, tumor_mask):
 
     return tumor_mask
 
-def denoise_pred(pred: np.ndarray):
+def denoise_pred(pred: np.ndarray, gate_with_organ: bool = True):
     """
-    # 0: background, 1: liver, 2: tumor.
-    pred.shape: (3, H, W, D)
+    Post-process prediction channels.
+    Channels: 0 background, 1 organ, 2 tumor.
+    If gate_with_organ is True, tumor is constrained inside organ; otherwise tumor uses its own channel.
     """
     denoise_pred = np.zeros_like(pred)
-
-
     denoise_pred[1, ...] = pred[1, ...]
-
-    denoise_pred[2, ...] = pred[1, ...] * pred[2,...]
-
-    denoise_pred[0,...] = 1 - np.logical_or(denoise_pred[1,...], denoise_pred[2,...])
-
+    if gate_with_organ:
+        denoise_pred[2, ...] = pred[1, ...] * pred[2, ...]
+    else:
+        denoise_pred[2, ...] = pred[2, ...]
+    denoise_pred[0, ...] = 1 - np.logical_or(denoise_pred[1, ...], denoise_pred[2, ...])
     return denoise_pred
 
 def cal_dice(pred, true):
@@ -219,7 +218,8 @@ def _get_loader(args):
                 to_tensor=True,
             ),
             AsDiscreted(keys="pred", argmax=True, to_onehot=3),
-            AsDiscreted(keys="label", to_onehot=3),
+            # For LIDC test set masks (tumor-only), keep label binary instead of 3-class one-hot
+            AsDiscreted(keys="label", threshold=0.5),
         ])
         return val_loader, post_transforms
     else:
@@ -319,10 +319,21 @@ def main():
                 if not args.disable_organ_override:
                     val_outputs[1, ...] = val_organ_pseudo[1, ...]
 
-            val_outputs = denoise_pred(val_outputs)
-
-            current_liver_dice, current_liver_nsd = cal_dice_nsd(val_outputs[1,...], val_labels[1,...], spacing_mm=spacing_mm)
-            current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[2,...], val_labels[2,...], spacing_mm=spacing_mm)
+            # For test set, do not gate tumor by organ; labels are binary tumor masks
+            if args.use_test_set:
+                val_outputs = denoise_pred(val_outputs, gate_with_organ=False)
+                # Ensure label is (H, W, D)
+                if val_labels.ndim == 4 and val_labels.shape[0] == 1:
+                    label_bin = val_labels[0, ...]
+                else:
+                    label_bin = val_labels
+                # Only compute tumor metrics reliably for test set
+                current_liver_dice, current_liver_nsd = (0.0, 0.0)
+                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[2, ...], label_bin, spacing_mm=spacing_mm)
+            else:
+                val_outputs = denoise_pred(val_outputs, gate_with_organ=not args.disable_organ_override)
+                current_liver_dice, current_liver_nsd = cal_dice_nsd(val_outputs[1, ...], val_labels[1, ...], spacing_mm=spacing_mm)
+                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[2, ...], val_labels[2, ...], spacing_mm=spacing_mm)
 
             organ_dice.append(current_liver_dice)
             organ_nsd.append(current_liver_nsd)
@@ -343,8 +354,10 @@ def main():
                 os.makedirs(output_dir)
             # val_outputs = np.argmax(val_outputs, axis=0)
             val_outputs_ = np.zeros_like(val_outputs[0])
-            val_outputs_[val_outputs[1]==1] = 1
-            val_outputs_[val_outputs[2]==1] = 2
+            # Save organ if available (not used for test evaluation), tumor as class 2
+            if not args.use_test_set:
+                val_outputs_[val_outputs[1] == 1] = 1
+            val_outputs_[val_outputs[2] == 1] = 2
 
             nib.save(
                 nib.Nifti1Image(val_outputs_.astype(np.uint8), original_affine), os.path.join(output_dir, f'{name}.nii.gz')
