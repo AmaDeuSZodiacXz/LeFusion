@@ -14,7 +14,7 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import nibabel as nib
-from scipy.ndimage import distance_transform_edt
+from scipy.ndimage import distance_transform_edt, zoom
 import torch
 from monai.metrics import DiceMetric
 import re
@@ -203,12 +203,30 @@ class ModelEvaluator:
     def evaluate_single_case(self, pred_path, gt_path):
         """Evaluate a single prediction against ground truth"""
         # Load predictions and ground truth
-        pred, spacing = self.load_nifti(pred_path)
-        gt, _ = self.load_nifti(gt_path)
+        pred, _ = self.load_nifti(pred_path)
+        gt, gt_spacing = self.load_nifti(gt_path)
         
+        # If multi-class mask, reduce to tumor channel (value==2)
+        if pred.max() > 1.5:
+            pred = (pred == 2).astype(np.uint8)
+        if gt.max() > 1.5:
+            gt = (gt == 2).astype(np.uint8)
+        
+        # Align shapes by resampling prediction to GT shape (nearest neighbor)
+        if pred.shape != gt.shape:
+            scale = (
+                gt.shape[0] / max(pred.shape[0], 1e-6),
+                gt.shape[1] / max(pred.shape[1], 1e-6),
+                gt.shape[2] / max(pred.shape[2], 1e-6),
+            )
+            pred = zoom(pred.astype(float), zoom=scale, order=0)  # nearest
+        
+        pred = (pred > 0.5).astype(np.uint8)
+        gt = (gt > 0.5).astype(np.uint8)
+         
         # Calculate metrics
         dice = self.calculate_dice(pred, gt)
-        nsd = self.calculate_nsd(pred, gt, spacing_mm=spacing, tolerance=self.config['evaluation']['nsd_tolerance'])
+        nsd = self.calculate_nsd(pred, gt, spacing_mm=gt_spacing, tolerance=self.config['evaluation']['nsd_tolerance'])
         
         return {
             'dice': dice,
