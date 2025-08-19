@@ -41,6 +41,7 @@ parser.add_argument('--swin_type', default='base', type=str)
 # evaluation options
 parser.add_argument('--use_test_set', action='store_true')
 parser.add_argument('--disable_organ_override', action='store_true')
+parser.add_argument('--lesion_class_index', default=2, type=int)
 
 def organ_region_filter_out(organ_mask, tumor_mask):
     ## dialtion
@@ -319,7 +320,7 @@ def main():
                 if not args.disable_organ_override:
                     val_outputs[1, ...] = val_organ_pseudo[1, ...]
 
-            # For test set, do not gate tumor by organ; labels are binary tumor masks
+            # For test set, do not gate tumor by organ; labels are binary lesion masks
             if args.use_test_set:
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=False)
                 # Ensure label is (H, W, D)
@@ -329,7 +330,8 @@ def main():
                     label_bin = val_labels
                 # Only compute tumor metrics reliably for test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
-                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[2, ...], label_bin, spacing_mm=spacing_mm)
+                lesion_idx = int(args.lesion_class_index)
+                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[lesion_idx, ...], label_bin, spacing_mm=spacing_mm)
             else:
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=not args.disable_organ_override)
                 current_liver_dice, current_liver_nsd = cal_dice_nsd(val_outputs[1, ...], val_labels[1, ...], spacing_mm=spacing_mm)
@@ -354,11 +356,14 @@ def main():
                 os.makedirs(output_dir)
             # val_outputs = np.argmax(val_outputs, axis=0)
             val_outputs_ = np.zeros_like(val_outputs[0])
-            # Save organ if available (not used for test evaluation), tumor as class 2
+            # Save organ if available (not used for test evaluation), lesion as class 2
             if not args.use_test_set:
                 val_outputs_[val_outputs[1] == 1] = 1
-            val_outputs_[val_outputs[2] == 1] = 2
-
+                val_outputs_[val_outputs[2] == 1] = 2
+            else:
+                lesion_idx = int(args.lesion_class_index)
+                val_outputs_[val_outputs[lesion_idx] == 1] = 2
+            
             nib.save(
                 nib.Nifti1Image(val_outputs_.astype(np.uint8), original_affine), os.path.join(output_dir, f'{name}.nii.gz')
             )
