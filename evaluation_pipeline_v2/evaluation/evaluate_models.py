@@ -202,9 +202,9 @@ class ModelEvaluator:
     def _run_validation_generate_predictions(self, dataset: str, method: str, model_type: str, seg_model: str, data_root: Path, model_dir: Path, save_parent: Path, val_overlap: float = 0.75) -> Path:
         """Invoke STEP3 validation.py to generate predictions and return the predictions directory path."""
         self._ensure_modelpt(model_dir)
-        # Ensure pseudo labels
-        tumor_type = 'liver' if dataset == 'lidc' else 'cardiac'
-        organ_type = 'liver' if dataset == 'lidc' else 'heart'
+        # Ensure pseudo labels (names are only used for legacy val split)
+        tumor_type = 'lung' if dataset == 'lidc' else 'cardiac'
+        organ_type = 'lung' if dataset == 'lidc' else 'heart'
         self._ensure_val_pseudo_labels(data_root, organ_type=organ_type, tumor_type=tumor_type)
         # Build command
         validation_py = (self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel' / 'validation.py').resolve()
@@ -223,6 +223,9 @@ class ModelEvaluator:
             '--use_test_set',
             '--disable_organ_override',
         ]
+        # For LIDC lesion segmentation, predictions often peak at class-1; select that channel
+        if dataset == 'lidc':
+            cmd.extend(['--lesion_class_index', '1'])
         print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
         try:
