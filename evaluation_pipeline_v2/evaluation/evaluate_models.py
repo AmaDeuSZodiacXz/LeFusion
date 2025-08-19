@@ -19,6 +19,7 @@ import torch
 from monai.metrics import DiceMetric
 import re
 import subprocess
+import shutil
 
 # Add path for surface_distance library
 sys.path.append('../../evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance')
@@ -85,6 +86,81 @@ class ModelEvaluator:
                 return cand
         # Return configured path even if missing; caller will error clearly
         return cfg_path
+    
+    def _ensure_modelpt(self, model_dir: Path) -> None:
+        """Ensure model.pt exists in model_dir by copying model_final.pt if needed."""
+        model_pt = model_dir / 'model.pt'
+        if model_pt.exists():
+            return
+        for cand in ['model_final.pt', 'best_metric_model.pth']:
+            src = model_dir / cand
+            if src.exists():
+                try:
+                    shutil.copy2(src, model_pt)
+                    print(f"ℹ️  Copied {src.name} -> model.pt for validation")
+                    return
+                except Exception as e:
+                    print(f"⚠️  Could not prepare model.pt: {e}")
+        # If nothing found, do nothing; caller will handle
+    
+    def _ensure_val_pseudo_labels(self, data_root: Path, organ_type: str, tumor_type: str) -> None:
+        """Create missing organ pseudo labels required by STEP3 validation by copying val labels."""
+        try:
+            val_list = data_root / f"real_{tumor_type}_val_0.txt"
+            if not val_list.exists():
+                return
+            step3_root = (self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel").resolve()
+            pseudo_dir = step3_root / "organ_pseudo_swin_new" / organ_type
+            pseudo_dir.mkdir(parents=True, exist_ok=True)
+            with open(val_list, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) < 2:
+                        continue
+                    lbl_rel = parts[1].lstrip('/')
+                    lbl_abs = (data_root / lbl_rel).resolve()
+                    if not lbl_abs.exists():
+                        continue
+                    dest = pseudo_dir / os.path.basename(lbl_abs)
+                    if not dest.exists():
+                        try:
+                            shutil.copy2(lbl_abs, dest)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    
+    def _run_validation_generate_predictions(self, dataset: str, method: str, model_type: str, seg_model: str, data_root: Path, model_dir: Path, save_parent: Path, val_overlap: float = 0.75) -> Path:
+        """Invoke STEP3 validation.py to generate predictions and return the predictions directory path."""
+        self._ensure_modelpt(model_dir)
+        # Ensure pseudo labels
+        tumor_type = 'liver' if dataset == 'lidc' else 'cardiac'
+        organ_type = 'liver' if dataset == 'lidc' else 'heart'
+        self._ensure_val_pseudo_labels(data_root, organ_type=organ_type, tumor_type=tumor_type)
+        # Build command
+        validation_py = (self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel' / 'validation.py').resolve()
+        cmd = [
+            sys.executable, str(validation_py),
+            '--data_root', str(data_root),
+            '--datafold_dir', str(data_root),
+            '--tumor_type', tumor_type,
+            '--organ_type', organ_type,
+            '--fold', '0',
+            '--save_dir', str(save_parent),
+            '--model', seg_model,
+            '--val_overlap', str(val_overlap),
+            '--checkpoint',
+            '--log_dir', str(model_dir),
+        ]
+        print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
+        step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
+        try:
+            subprocess.run(cmd, cwd=step3_cwd, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"❌ validation.py failed: {e}")
+        # Validation saves to save_dir/<model>/<val_overlap>/pred
+        pred_dir = save_parent / seg_model / str(val_overlap) / 'pred'
+        return pred_dir
         
     def calculate_dice(self, pred, gt):
         """Calculate DICE coefficient"""
@@ -188,7 +264,8 @@ class ModelEvaluator:
             return None
             
         # Run inference (simplified - in practice you'd load the model and run predictions)
-        predictions_dir = self.results_dir / f"{dataset}_{method}_{model_type}_{seg_model}" / "predictions"
+        predictions_root = self.results_dir / f"{dataset}_{method}_{model_type}_{seg_model}"
+        predictions_dir = predictions_root / "predictions"
         os.makedirs(predictions_dir, exist_ok=True)
         
         # For now, we'll assume predictions are already generated
@@ -215,8 +292,30 @@ class ModelEvaluator:
                 print(f"⚠️ Prediction not found for {case_name}")
                 
         if len(results) == 0:
-            print(f"❌ No predictions found to evaluate in {predictions_dir}")
-            return None
+            # Try to auto-generate predictions using validation.py
+            model_dir = self.base_dir / 'trained_models' / dataset / method / model_type / seg_model
+            gen_pred_dir = self._run_validation_generate_predictions(
+                dataset=dataset, method=method, model_type=model_type, seg_model=seg_model,
+                data_root=test_data_dir, model_dir=model_dir, save_parent=predictions_root,
+                val_overlap=0.75,
+            )
+            if gen_pred_dir.exists():
+                # Re-evaluate with generated predictions
+                predictions_dir = gen_pred_dir
+                results = []
+                for gt_path in test_cases:
+                    case_name = gt_path.stem.replace(".nii", "")
+                    pred_path = predictions_dir / f"{case_name}.nii.gz"
+                    if pred_path.exists():
+                        metrics = self.evaluate_single_case(pred_path, gt_path)
+                        metrics['case'] = case_name
+                        results.append(metrics)
+                if len(results) == 0:
+                    print(f"❌ No predictions found to evaluate in {predictions_dir}")
+                    return None
+            else:
+                print(f"❌ No predictions found to evaluate in {predictions_dir}")
+                return None
             
         # Calculate statistics
         df = pd.DataFrame(results)
