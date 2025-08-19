@@ -136,7 +136,7 @@ class SegmentationTrainer:
                 
         if method == "baseline":
             # Baseline uses only real data
-            self._ensure_split_files(real_data_dir)
+            self._ensure_split_files(real_data_dir, dataset)
             return real_data_dir.resolve()
             
         # For other methods, combine real and synthetic data
@@ -177,10 +177,32 @@ class SegmentationTrainer:
                     self._add_synthetic_data(synthetic_dir, combined_dir)
                     
         # Ensure split files exist in combined dir
-        self._ensure_split_files(combined_dir)
+        self._ensure_split_files(combined_dir, dataset)
         return combined_dir.resolve()
 
-    def _ensure_split_files(self, data_root: Path):
+    def _load_test_exclusions(self, dataset: str) -> set:
+        """Return a set of label basenames to exclude from splits (e.g., LIDC test.txt)."""
+        exclusions: set[str] = set()
+        try:
+            ds_cfg = self.config['datasets'][dataset]
+            test_file = ds_cfg.get('test_file')
+            if test_file:
+                test_path = Path(test_file)
+                if not test_path.is_absolute():
+                    test_path = (self.base_dir / test_path).resolve()
+                if test_path.exists():
+                    with open(test_path, 'r') as f:
+                        for line in f:
+                            name = line.strip()
+                            if not name:
+                                continue
+                            # test.txt uses names like LIDC-IDRI-XXXX_Mask_YYY; labels are <name>.nii.gz
+                            exclusions.add(f"{name}.nii.gz")
+        except Exception:
+            pass
+        return exclusions
+
+    def _ensure_split_files(self, data_root: Path, dataset: str):
         """Create train/val split files required by DiffTumor if missing.
         Format: each line 'imagesTr/xxx.nii.gz labelsTr/xxx.nii.gz' (relative paths).
         """
@@ -192,8 +214,14 @@ class SegmentationTrainer:
             return
         if train_txt.exists() and val_txt.exists():
             return
+        # Exclude test-set cases to avoid leakage
+        label_exclusions = self._load_test_exclusions(dataset)
         # Build pairs by iterating labels and finding best-matching image
-        label_files = sorted([p for p in labels_dir.rglob("*.nii.gz") if p.is_file()])
+        label_files = []
+        for p in sorted([p for p in labels_dir.rglob("*.nii.gz") if p.is_file()]):
+            if p.name in label_exclusions:
+                continue
+            label_files.append(p)
         pairs = []
         for lbl in label_files:
             lbl_name = lbl.name
