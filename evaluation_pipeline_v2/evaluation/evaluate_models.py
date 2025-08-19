@@ -67,6 +67,24 @@ class ModelEvaluator:
         if m:
             return int(m.group(1))
         return -1
+
+    def _select_real_data_dir(self, dataset: str) -> Path:
+        """Pick an existing real_data_dir for dataset, trying config then known fallbacks."""
+        cfg_path = self._resolve_path(self.config['datasets'][dataset]['real_data_dir'])
+        if cfg_path.exists():
+            return cfg_path
+        # Known fallback under the legacy evaluation_pipeline
+        real_name = 'LIDC_real' if dataset == 'lidc' else 'EMIDEC_real'
+        candidates = [
+            (self.base_dir.parent / 'evaluation_pipeline' / 'datasets' / real_name).resolve(),
+            (self.base_dir / 'datasets' / real_name).resolve(),
+        ]
+        for cand in candidates:
+            if cand.exists():
+                print(f"ℹ️  Using fallback real_data_dir: {cand}")
+                return cand
+        # Return configured path even if missing; caller will error clearly
+        return cfg_path
         
     def calculate_dice(self, pred, gt):
         """Calculate DICE coefficient"""
@@ -156,7 +174,7 @@ class ModelEvaluator:
             print(f"📦 Using checkpoint: {model_path}")
         
         # Get test data
-        test_data_dir = self._resolve_path(self.config['datasets'][dataset]['real_data_dir'])
+        test_data_dir = self._select_real_data_dir(dataset)
         test_images_dir = test_data_dir / "imagesTs"
         test_labels_dir = test_data_dir / "labelsTs"
         # Fallback to training-style dirs if test set absent
