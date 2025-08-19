@@ -156,10 +156,10 @@ def _get_loader(args):
         [
             transforms.LoadImaged(keys=["image", "label", "organ_pseudo"]),
             transforms.AddChanneld(keys=["image", "label", "organ_pseudo"]),
-            transforms.Orientationd(keys=["image"], axcodes="RAS"),
-            transforms.Spacingd(keys=["image"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear")),
+            transforms.Orientationd(keys=["image", "label", "organ_pseudo"], axcodes="RAS"),
+            transforms.Spacingd(keys=["image", "label", "organ_pseudo"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest", "nearest")),
             transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-            transforms.SpatialPadd(keys=["image"], mode="minimum", spatial_size=[96, 96, 96]),
+            transforms.SpatialPadd(keys=["image", "label", "organ_pseudo"], mode=["minimum", "constant", "constant"], spatial_size=[96, 96, 96]),
             transforms.ToTensord(keys=["image", "label", "organ_pseudo"]),
         ]
     )
