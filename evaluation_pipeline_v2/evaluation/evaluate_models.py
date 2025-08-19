@@ -108,12 +108,31 @@ class ModelEvaluator:
         
         # Get model path
         model_dir = self.base_dir / "trained_models" / dataset / method / model_type / seg_model
-        model_path = model_dir / "best_metric_model.pth"
+        # Try multiple known filenames
+        candidates = [
+            model_dir / "best_metric_model.pth",
+            model_dir / "model.pt",
+            model_dir / "model_final.pt",
+        ]
+        model_path = next((p for p in candidates if p.exists()), None)
+        # If still not found, pick the latest epoch_XXXX.pt
+        if model_path is None:
+            epoch_ckpts = sorted(model_dir.glob('epoch_*.pt'))
+            if epoch_ckpts:
+                # sort by numeric epoch
+                def epoch_num(p):
+                    name = p.stem  # epoch_XXXX
+                    try:
+                        return int(name.split('_')[-1])
+                    except Exception:
+                        return -1
+                epoch_ckpts.sort(key=epoch_num)
+                model_path = epoch_ckpts[-1]
+        if model_path is None:
+            print(f"⚠️ Model checkpoint not found in {model_dir}. Proceeding to look for predictions only.")
+        else:
+            print(f"📦 Using checkpoint: {model_path}")
         
-        if not model_path.exists():
-            print(f"❌ Model not found: {model_path}")
-            return None
-            
         # Get test data
         test_data_dir = Path(self.config['datasets'][dataset]['real_data_dir'])
         test_images_dir = test_data_dir / "imagesTs"
@@ -151,7 +170,7 @@ class ModelEvaluator:
                 print(f"⚠️ Prediction not found for {case_name}")
                 
         if len(results) == 0:
-            print(f"❌ No predictions found to evaluate")
+            print(f"❌ No predictions found to evaluate in {predictions_dir}")
             return None
             
         # Calculate statistics
