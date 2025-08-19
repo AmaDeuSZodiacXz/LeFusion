@@ -20,6 +20,7 @@ from monai.metrics import DiceMetric
 import re
 import subprocess
 import shutil
+import csv
 
 # Add path for surface_distance library
 sys.path.append('../../evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance')
@@ -235,6 +236,45 @@ class ModelEvaluator:
         # Validation saves to save_dir/<model>/<val_overlap>/pred
         pred_dir = save_parent / seg_model / str(val_overlap) / 'pred'
         return pred_dir
+
+    def _read_validation_metrics_csv(self, save_parent: Path, seg_model: str, val_overlap: float) -> dict | None:
+        """Read tumor Dice/NSD from STEP3 validation metrics.csv; returns stats dict or None."""
+        metrics_path = save_parent / seg_model / str(val_overlap) / 'metrics.csv'
+        if not metrics_path.exists():
+            return None
+        tumor_dice_vals = []
+        tumor_nsd_vals = []
+        try:
+            with open(metrics_path, 'r') as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                # Expect header: name, organ_dice, organ_nsd, tumor_dice, tumor_nsd
+                for row in reader:
+                    if not row:
+                        continue
+                    if row[0].strip().lower() == 'average':
+                        # skip the summary row; we recompute robustly
+                        continue
+                    # Robust parse of columns 3 and 4 as floats (they are decimals 0..1)
+                    try:
+                        td = float(row[3]) * 100.0
+                        tn = float(row[4]) * 100.0
+                        tumor_dice_vals.append(td)
+                        tumor_nsd_vals.append(tn)
+                    except Exception:
+                        continue
+        except Exception:
+            return None
+        if not tumor_dice_vals:
+            return None
+        import numpy as np
+        return {
+            'dice_mean': float(np.mean(tumor_dice_vals)),
+            'dice_std': float(np.std(tumor_dice_vals)),
+            'nsd_mean': float(np.mean(tumor_nsd_vals)) if tumor_nsd_vals else 0.0,
+            'nsd_std': float(np.std(tumor_nsd_vals)) if tumor_nsd_vals else 0.0,
+            'num_cases': len(tumor_dice_vals),
+        }
         
     def calculate_dice(self, pred, gt):
         """Calculate DICE coefficient"""
@@ -396,7 +436,22 @@ class ModelEvaluator:
                 val_overlap=0.75,
             )
             if gen_pred_dir.exists():
-                # Re-evaluate with generated predictions
+                # Prefer reading validator's metrics.csv for consistency with printed per-case values
+                csv_stats = self._read_validation_metrics_csv(save_parent=predictions_root, seg_model=seg_model, val_overlap=0.75)
+                if csv_stats is not None:
+                    stats = {
+                        'dataset': dataset,
+                        'method': method,
+                        'model_type': model_type,
+                        'seg_model': seg_model,
+                        'dice_mean': csv_stats['dice_mean'],
+                        'dice_std': csv_stats['dice_std'],
+                        'nsd_mean': csv_stats['nsd_mean'],
+                        'nsd_std': csv_stats['nsd_std'],
+                        'num_cases': csv_stats['num_cases'],
+                    }
+                    return stats
+                # Fallback: compute metrics from saved masks if CSV not available
                 predictions_dir = gen_pred_dir
                 results = []
                 for gt_path in test_cases:
@@ -416,7 +471,6 @@ class ModelEvaluator:
             
         # Calculate statistics
         df = pd.DataFrame(results)
-        
         stats = {
             'dataset': dataset,
             'method': method,
