@@ -17,6 +17,8 @@ import nibabel as nib
 from scipy.ndimage import distance_transform_edt
 import torch
 from monai.metrics import DiceMetric
+import re
+import subprocess
 
 # Add path for surface_distance library
 sys.path.append('../../evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance')
@@ -45,6 +47,26 @@ class ModelEvaluator:
         
         print(f"📁 Base directory: {self.base_dir}")
         print(f"📁 Results directory: {self.results_dir}")
+    
+    def _resolve_path(self, maybe_rel_path: str) -> Path:
+        p = Path(maybe_rel_path)
+        if not p.is_absolute():
+            p = (self.base_dir / p).resolve()
+        return p
+    
+    def _get_checkpoint_epoch(self, ckpt_path: Path) -> int:
+        try:
+            ckp = torch.load(str(ckpt_path), map_location='cpu')
+            e = ckp.get('epoch', -1)
+            if isinstance(e, (int, float)):
+                return int(e)
+        except Exception:
+            pass
+        # Try parse from filename like epoch_XXXX.pt
+        m = re.search(r'epoch_(\d+)\.pt$', ckpt_path.name)
+        if m:
+            return int(m.group(1))
+        return -1
         
     def calculate_dice(self, pred, gt):
         """Calculate DICE coefficient"""
@@ -134,9 +156,14 @@ class ModelEvaluator:
             print(f"📦 Using checkpoint: {model_path}")
         
         # Get test data
-        test_data_dir = Path(self.config['datasets'][dataset]['real_data_dir'])
+        test_data_dir = self._resolve_path(self.config['datasets'][dataset]['real_data_dir'])
         test_images_dir = test_data_dir / "imagesTs"
         test_labels_dir = test_data_dir / "labelsTs"
+        # Fallback to training-style dirs if test set absent
+        if not test_images_dir.exists() or not test_labels_dir.exists():
+            print(f"ℹ️  Falling back to training dirs (imagesTr/labelsTr)")
+            test_images_dir = test_data_dir / "imagesTr"
+            test_labels_dir = test_data_dir / "labelsTr"
         
         if not test_images_dir.exists():
             print(f"❌ Test images not found: {test_images_dir}")
@@ -280,6 +307,36 @@ class ModelEvaluator:
                     print(f"Evaluating: {method} + {model_type} + {seg_model}")
                     print(f"{'='*50}")
                     
+                    # Locate checkpoint and skip if not finished
+                    model_dir = self.base_dir / "trained_models" / dataset / method / model_type / seg_model
+                    # Try preferred file order
+                    ckpt = None
+                    for cand in ["model_final.pt", "model.pt", "best_metric_model.pth"]:
+                        p = model_dir / cand
+                        if p.exists():
+                            ckpt = p
+                            break
+                    if ckpt is None:
+                        # Try latest epoch_*.pt
+                        epoch_ckpts = sorted(model_dir.glob('epoch_*.pt'))
+                        if epoch_ckpts:
+                            def epoch_num(p):
+                                try:
+                                    return int(p.stem.split('_')[-1])
+                                except Exception:
+                                    return -1
+                            epoch_ckpts.sort(key=epoch_num)
+                            ckpt = epoch_ckpts[-1]
+                    if ckpt is not None:
+                        last_epoch = self._get_checkpoint_epoch(ckpt)
+                        max_epochs = int(self.config['training']['max_epochs'])
+                        if last_epoch < max_epochs - 1:
+                            print(f"⏭️  Skipping (incomplete): {method}+{model_type}+{seg_model} at epoch {last_epoch+1}/{max_epochs}")
+                            continue
+                    else:
+                        print(f"⏭️  Skipping (no checkpoint): {method}+{model_type}+{seg_model}")
+                        continue
+
                     stats = self.evaluate_model(dataset, method, model_type, seg_model)
                     
                     if stats:
