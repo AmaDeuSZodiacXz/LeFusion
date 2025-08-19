@@ -87,6 +87,75 @@ class ModelEvaluator:
         # Return configured path even if missing; caller will error clearly
         return cfg_path
     
+    def _stage_test_set_from_txt(self, dataset: str) -> Path | None:
+        """Create a staging test set (imagesTs/labelsTs) based on test.txt for LIDC.
+        Prefers sourcing from LIDC_real if available; falls back to original Pathological folders.
+        Returns the staging directory path or None if failed.
+        """
+        if dataset != 'lidc':
+            return None
+        test_txt_conf = self.config['datasets'][dataset].get('test_file')
+        if not test_txt_conf:
+            return None
+        test_txt = self._resolve_path(test_txt_conf)
+        if not test_txt.exists():
+            print(f"❌ test.txt not found: {test_txt}")
+            return None
+        # Determine source directories
+        lidc_real = (self.base_dir.parent / 'evaluation_pipeline' / 'datasets' / 'LIDC_real').resolve()
+        if (lidc_real / 'imagesTr').exists() and (lidc_real / 'labelsTr').exists():
+            src_img = lidc_real / 'imagesTr'
+            src_lbl = lidc_real / 'labelsTr'
+        else:
+            # Fallback to original dataset
+            patho_base = self._resolve_path(self.config['datasets'][dataset]['pathological_dir'])
+            src_img = patho_base / 'Image'
+            src_lbl = patho_base / 'Mask'
+        # Prepare staging dir
+        staging_root = self.results_dir / f"{dataset}_staging_test"
+        imagesTs = staging_root / 'imagesTs'
+        labelsTs = staging_root / 'labelsTs'
+        os.makedirs(imagesTs, exist_ok=True)
+        os.makedirs(labelsTs, exist_ok=True)
+        # Build file pairs from test.txt
+        copied = 0
+        with open(test_txt, 'r') as f:
+            for line in f:
+                name = line.strip()
+                if not name:
+                    continue
+                # Construct candidate filenames
+                img_cands = [f"{name.replace('Vol_', 'CVol_')}.nii.gz", f"{name}.nii.gz"]
+                lbl_name = f"{name.replace('Vol_', 'Mask_')}.nii.gz"
+                img_src = None
+                for cand in img_cands:
+                    p = src_img / cand
+                    if p.exists():
+                        img_src = p
+                        break
+                lbl_src = src_lbl / lbl_name
+                if img_src is None or not lbl_src.exists():
+                    continue
+                # Copy if not already staged
+                img_dst = imagesTs / img_src.name
+                lbl_dst = labelsTs / lbl_src.name
+                if not img_dst.exists():
+                    try:
+                        shutil.copy2(img_src, img_dst)
+                    except Exception:
+                        pass
+                if not lbl_dst.exists():
+                    try:
+                        shutil.copy2(lbl_src, lbl_dst)
+                    except Exception:
+                        pass
+                copied += 1
+        if copied == 0:
+            print(f"❌ No test pairs could be staged from {test_txt}")
+            return None
+        print(f"✅ Staged {copied} test pairs to {staging_root}")
+        return staging_root
+    
     def _ensure_modelpt(self, model_dir: Path) -> None:
         """Ensure model.pt exists in model_dir by copying model_final.pt if needed."""
         model_pt = model_dir / 'model.pt'
@@ -274,6 +343,11 @@ class ModelEvaluator:
         
         # Get test data
         test_data_dir = self._select_real_data_dir(dataset)
+        # If LIDC and test.txt is available, stage test set into imagesTs/labelsTs
+        if dataset == 'lidc':
+            staged = self._stage_test_set_from_txt(dataset)
+            if staged is not None:
+                test_data_dir = staged
         test_images_dir = test_data_dir / "imagesTs"
         test_labels_dir = test_data_dir / "labelsTs"
         
@@ -293,7 +367,7 @@ class ModelEvaluator:
         test_cases = list(test_labels_dir.glob("*.nii.gz"))
         
         if len(test_cases) == 0:
-            print(f"❌ No test cases found in {test_labels_dir}. Please provide the paper test set under imagesTs/labelsTs.")
+            print(f"❌ No test cases found in {test_labels_dir}. Please provide the paper test set under imagesTs/labelsTs or a valid test.txt.")
             return None
             
         # Evaluate each case
