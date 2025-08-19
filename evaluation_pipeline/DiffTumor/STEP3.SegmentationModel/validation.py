@@ -157,7 +157,7 @@ def _get_model(args):
 
 def _get_loader(args):
     if args.use_test_set:
-        # Build dataset from imagesTs/labelsTs
+        # Build dataset from imagesTs/labelsTs with correct image-label name mapping
         val_test_transform = transforms.Compose(
             [
                 transforms.LoadImaged(keys=["image", "label"]),
@@ -171,10 +171,35 @@ def _get_loader(args):
         )
         test_images = os.path.join(args.data_root, 'imagesTs')
         test_labels = os.path.join(args.data_root, 'labelsTs')
-        names = [f for f in os.listdir(test_labels) if f.endswith('.nii.gz')]
-        val_img = [os.path.join(test_images, n) for n in names]
-        val_lbl = [os.path.join(test_labels, n) for n in names]
-        val_name = [os.path.splitext(n)[0] for n in names]
+        label_names = sorted([f for f in os.listdir(test_labels) if f.endswith('.nii.gz')])
+        val_img = []
+        val_lbl = []
+        val_name = []
+        for lbl_name in label_names:
+            lbl_path = os.path.join(test_labels, lbl_name)
+            # Map label filename to corresponding image filename
+            cand_imgs = [
+                lbl_name.replace('_Mask_', '_CVol_'),
+                lbl_name.replace('_Mask_', '_Vol_'),
+                lbl_name.replace('_Mask_', ''),
+            ]
+            img_path = None
+            for ci in cand_imgs:
+                p = os.path.join(test_images, ci)
+                if os.path.exists(p):
+                    img_path = p
+                    break
+            if img_path is None:
+                # try find any matching by basename without suffix
+                base_id = lbl_name.split('_Mask_')[0]
+                hits = [x for x in os.listdir(test_images) if x.startswith(base_id) and x.endswith('.nii.gz')]
+                if hits:
+                    img_path = os.path.join(test_images, hits[0])
+            if img_path is None:
+                continue
+            val_img.append(img_path)
+            val_lbl.append(lbl_path)
+            val_name.append(os.path.splitext(lbl_name)[0])
         data_dicts_val = [{'image': image, 'label': label, 'name': name}
                     for image, label, name in zip(val_img, val_lbl, val_name)]
         print('test len {}'.format(len(data_dicts_val)))
