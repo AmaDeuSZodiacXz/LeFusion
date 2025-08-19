@@ -151,6 +151,8 @@ class ModelEvaluator:
             '--val_overlap', str(val_overlap),
             '--checkpoint',
             '--log_dir', str(model_dir),
+            '--use_test_set',
+            '--disable_organ_override',
         ]
         print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
@@ -274,11 +276,6 @@ class ModelEvaluator:
         test_data_dir = self._select_real_data_dir(dataset)
         test_images_dir = test_data_dir / "imagesTs"
         test_labels_dir = test_data_dir / "labelsTs"
-        # Fallback to training-style dirs if test set absent
-        if not test_images_dir.exists() or not test_labels_dir.exists():
-            print(f"ℹ️  Falling back to training dirs (imagesTr/labelsTr)")
-            test_images_dir = test_data_dir / "imagesTr"
-            test_labels_dir = test_data_dir / "labelsTr"
         
         if not test_images_dir.exists():
             print(f"❌ Test images not found: {test_images_dir}")
@@ -296,7 +293,7 @@ class ModelEvaluator:
         test_cases = list(test_labels_dir.glob("*.nii.gz"))
         
         if len(test_cases) == 0:
-            print(f"❌ No test cases found in {test_labels_dir}")
+            print(f"❌ No test cases found in {test_labels_dir}. Please provide the paper test set under imagesTs/labelsTs.")
             return None
             
         # Evaluate each case
