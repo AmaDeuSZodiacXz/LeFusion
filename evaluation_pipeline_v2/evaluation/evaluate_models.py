@@ -224,6 +224,9 @@ class ModelEvaluator:
         pred = (pred > 0.5).astype(np.uint8)
         gt = (gt > 0.5).astype(np.uint8)
          
+        # Skip if GT has no tumor voxels
+        if gt.sum() == 0:
+            return None
         # Calculate metrics
         dice = self.calculate_dice(pred, gt)
         nsd = self.calculate_nsd(pred, gt, spacing_mm=gt_spacing, tolerance=self.config['evaluation']['nsd_tolerance'])
@@ -304,8 +307,9 @@ class ModelEvaluator:
             
             if pred_path.exists():
                 metrics = self.evaluate_single_case(pred_path, gt_path)
-                metrics['case'] = case_name
-                results.append(metrics)
+                if metrics is not None:
+                    metrics['case'] = case_name
+                    results.append(metrics)
             else:
                 print(f"⚠️ Prediction not found for {case_name}")
                 
@@ -326,8 +330,9 @@ class ModelEvaluator:
                     pred_path = predictions_dir / f"{case_name}.nii.gz"
                     if pred_path.exists():
                         metrics = self.evaluate_single_case(pred_path, gt_path)
-                        metrics['case'] = case_name
-                        results.append(metrics)
+                        if metrics is not None:
+                            metrics['case'] = case_name
+                            results.append(metrics)
                 if len(results) == 0:
                     print(f"❌ No predictions found to evaluate in {predictions_dir}")
                     return None

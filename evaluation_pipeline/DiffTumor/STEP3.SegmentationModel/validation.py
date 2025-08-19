@@ -38,6 +38,10 @@ parser.add_argument('--num_classes', default=3, type=int)
 parser.add_argument('--model', default='unet', type=str)
 parser.add_argument('--swin_type', default='base', type=str)
 
+# evaluation options
+parser.add_argument('--use_test_set', action='store_true')
+parser.add_argument('--disable_organ_override', action='store_true')
+
 def organ_region_filter_out(organ_mask, tumor_mask):
     ## dialtion
     organ_mask = ndimage.binary_closing(organ_mask, structure=np.ones((5,5,5)))
@@ -152,51 +156,93 @@ def _get_model(args):
     return model, model_inferer
 
 def _get_loader(args):
-    val_org_transform = transforms.Compose(
-        [
-            transforms.LoadImaged(keys=["image", "label", "organ_pseudo"]),
-            transforms.AddChanneld(keys=["image", "label", "organ_pseudo"]),
-            transforms.Orientationd(keys=["image", "label", "organ_pseudo"], axcodes="RAS"),
-            transforms.Spacingd(keys=["image", "label", "organ_pseudo"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest", "nearest")),
-            transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-            transforms.SpatialPadd(keys=["image", "label", "organ_pseudo"], mode=["minimum", "constant", "constant"], spatial_size=[96, 96, 96]),
-            transforms.ToTensord(keys=["image", "label", "organ_pseudo"]),
-        ]
-    )
-    val_img=[]
-    val_lbl=[]
-    val_name=[]
-    val_pseudo_lbl = []
-    for line in open(os.path.join(args.datafold_dir, 'real_{}_val_{}.txt'.format(args.tumor_type, args.fold))):
-        name = line.strip().split()[1].split('.')[0]
-        val_img.append(args.data_root + line.strip().split()[0])
-        val_lbl.append(args.data_root + line.strip().split()[1])
-        val_pseudo_lbl.append('organ_pseudo_swin_new/'+args.organ_type + '/' + os.path.basename(line.strip().split()[1]))
-        val_name.append(name)
-    data_dicts_val = [{'image': image, 'label': label, 'organ_pseudo': organ_pseudo, 'name': name}
-                for image, label, organ_pseudo, name in zip(val_img, val_lbl, val_pseudo_lbl, val_name)]
-    print('val len {}'.format(len(data_dicts_val)))
+    if args.use_test_set:
+        # Build dataset from imagesTs/labelsTs
+        val_test_transform = transforms.Compose(
+            [
+                transforms.LoadImaged(keys=["image", "label"]),
+                transforms.AddChanneld(keys=["image", "label"]),
+                transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+                transforms.Spacingd(keys=["image", "label"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest")),
+                transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+                transforms.SpatialPadd(keys=["image", "label"], mode=["minimum", "constant"], spatial_size=[96, 96, 96]),
+                transforms.ToTensord(keys=["image", "label"]),
+            ]
+        )
+        test_images = os.path.join(args.data_root, 'imagesTs')
+        test_labels = os.path.join(args.data_root, 'labelsTs')
+        names = [f for f in os.listdir(test_labels) if f.endswith('.nii.gz')]
+        val_img = [os.path.join(test_images, n) for n in names]
+        val_lbl = [os.path.join(test_labels, n) for n in names]
+        val_name = [os.path.splitext(n)[0] for n in names]
+        data_dicts_val = [{'image': image, 'label': label, 'name': name}
+                    for image, label, name in zip(val_img, val_lbl, val_name)]
+        print('test len {}'.format(len(data_dicts_val)))
 
-    val_org_ds = data.Dataset(data_dicts_val, transform=val_org_transform)
-    val_org_loader = data.DataLoader(val_org_ds, batch_size=1, shuffle=False, num_workers=4, sampler=None, pin_memory=True)
+        val_ds = data.Dataset(data_dicts_val, transform=val_test_transform)
+        val_loader = data.DataLoader(val_ds, batch_size=1, shuffle=False, num_workers=4, sampler=None, pin_memory=True)
 
-    post_transforms = Compose([
-        Invertd(
-            keys="pred",
-            transform=val_org_transform,
-            orig_keys="image",
-            meta_keys="pred_meta_dict",
-            orig_meta_keys="image_meta_dict",
-            meta_key_postfix="meta_dict",
-            nearest_interp=False,
-            to_tensor=True,
-        ),
-        AsDiscreted(keys="pred", argmax=True, to_onehot=3),
-        AsDiscreted(keys="label", to_onehot=3),
-        AsDiscreted(keys="organ_pseudo", to_onehot=3),
-    ])
-    
-    return val_org_loader, post_transforms
+        post_transforms = Compose([
+            Invertd(
+                keys="pred",
+                transform=val_test_transform,
+                orig_keys="image",
+                meta_keys="pred_meta_dict",
+                orig_meta_keys="image_meta_dict",
+                meta_key_postfix="meta_dict",
+                nearest_interp=False,
+                to_tensor=True,
+            ),
+            AsDiscreted(keys="pred", argmax=True, to_onehot=3),
+            AsDiscreted(keys="label", to_onehot=3),
+        ])
+        return val_loader, post_transforms
+    else:
+        val_org_transform = transforms.Compose(
+            [
+                transforms.LoadImaged(keys=["image", "label", "organ_pseudo"]),
+                transforms.AddChanneld(keys=["image", "label", "organ_pseudo"]),
+                transforms.Orientationd(keys=["image", "label", "organ_pseudo"], axcodes="RAS"),
+                transforms.Spacingd(keys=["image", "label", "organ_pseudo"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest", "nearest")),
+                transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+                transforms.SpatialPadd(keys=["image", "label", "organ_pseudo"], mode=["minimum", "constant", "constant"], spatial_size=[96, 96, 96]),
+                transforms.ToTensord(keys=["image", "label", "organ_pseudo"]),
+            ]
+        )
+        val_img=[]
+        val_lbl=[]
+        val_name=[]
+        val_pseudo_lbl = []
+        for line in open(os.path.join(args.datafold_dir, 'real_{}_val_{}.txt'.format(args.tumor_type, args.fold))):
+            name = line.strip().split()[1].split('.')[0]
+            val_img.append(args.data_root + line.strip().split()[0])
+            val_lbl.append(args.data_root + line.strip().split()[1])
+            val_pseudo_lbl.append('organ_pseudo_swin_new/'+args.organ_type + '/' + os.path.basename(line.strip().split()[1]))
+            val_name.append(name)
+        data_dicts_val = [{'image': image, 'label': label, 'organ_pseudo': organ_pseudo, 'name': name}
+                    for image, label, organ_pseudo, name in zip(val_img, val_lbl, val_pseudo_lbl, val_name)]
+        print('val len {}'.format(len(data_dicts_val)))
+
+        val_org_ds = data.Dataset(data_dicts_val, transform=val_org_transform)
+        val_org_loader = data.DataLoader(val_org_ds, batch_size=1, shuffle=False, num_workers=4, sampler=None, pin_memory=True)
+
+        post_transforms = Compose([
+            Invertd(
+                keys="pred",
+                transform=val_org_transform,
+                orig_keys="image",
+                meta_keys="pred_meta_dict",
+                orig_meta_keys="image_meta_dict",
+                meta_key_postfix="meta_dict",
+                nearest_interp=False,
+                to_tensor=True,
+            ),
+            AsDiscreted(keys="pred", argmax=True, to_onehot=3),
+            AsDiscreted(keys="label", to_onehot=3),
+            AsDiscreted(keys="organ_pseudo", to_onehot=3),
+        ])
+        
+        return val_org_loader, post_transforms
 
 def main():
     args = parser.parse_args()
@@ -236,12 +282,17 @@ def main():
             val_data['label'][val_data['label']==3] = 1
             val_data["pred"] = model_inferer(val_inputs)
             val_data = [post_transforms(i) for i in data.decollate_batch(val_data)]
-            val_outputs, val_labels, val_organ_pseudo = val_data[0]['pred'], val_data[0]['label'], val_data[0]['organ_pseudo']
             
-            # val_outpus.shape == val_labels.shape  (3, H, W, Z)
-            val_outputs, val_labels = val_outputs.detach().cpu().numpy(), val_labels.detach().cpu().numpy()
-            val_organ_pseudo = val_organ_pseudo.detach().cpu().numpy()
-            val_outputs[1, ...] = val_organ_pseudo[1, ...]
+            if args.use_test_set:
+                val_outputs, val_labels = val_data[0]['pred'], val_data[0]['label']
+                val_outputs, val_labels = val_outputs.detach().cpu().numpy(), val_labels.detach().cpu().numpy()
+            else:
+                val_outputs, val_labels, val_organ_pseudo = val_data[0]['pred'], val_data[0]['label'], val_data[0]['organ_pseudo']
+                # val_outpus.shape == val_labels.shape  (3, H, W, Z)
+                val_outputs, val_labels = val_outputs.detach().cpu().numpy(), val_labels.detach().cpu().numpy()
+                val_organ_pseudo = val_organ_pseudo.detach().cpu().numpy()
+                if not args.disable_organ_override:
+                    val_outputs[1, ...] = val_organ_pseudo[1, ...]
 
             val_outputs = denoise_pred(val_outputs)
 
