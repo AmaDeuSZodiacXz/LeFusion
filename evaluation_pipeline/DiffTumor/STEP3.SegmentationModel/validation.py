@@ -322,15 +322,29 @@ def main():
 
             # For test set, do not gate tumor by organ; labels are binary lesion masks
             if args.use_test_set:
+                # DEBUG: Print shapes and content before processing
+                print(f"DEBUG: val_outputs.shape = {val_outputs.shape}")
+                print(f"DEBUG: val_outputs channels sum = {[val_outputs[i].sum() for i in range(val_outputs.shape[0])]}")
+                
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=False)
+                
+                # DEBUG: Print shapes and content after processing
+                print(f"DEBUG: after denoise_pred, val_outputs channels sum = {[val_outputs[i].sum() for i in range(val_outputs.shape[0])]}")
+                
                 # Ensure label is (H, W, D)
                 if val_labels.ndim == 4 and val_labels.shape[0] == 1:
                     label_bin = val_labels[0, ...]
                 else:
                     label_bin = val_labels
+                    
+                print(f"DEBUG: label_bin.shape = {label_bin.shape}, label_bin.sum() = {label_bin.sum()}")
+                
                 # Only compute tumor metrics reliably for test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
                 lesion_idx = int(args.lesion_class_index)
+                print(f"DEBUG: Using lesion_idx = {lesion_idx}")
+                print(f"DEBUG: val_outputs[{lesion_idx}].sum() = {val_outputs[lesion_idx, ...].sum()}")
+                
                 current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[lesion_idx, ...], label_bin, spacing_mm=spacing_mm)
             else:
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=not args.disable_organ_override)
