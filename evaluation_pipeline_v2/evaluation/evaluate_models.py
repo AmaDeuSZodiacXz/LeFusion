@@ -224,9 +224,9 @@ class ModelEvaluator:
             '--use_test_set',
             '--disable_organ_override',
         ]
-        # For LIDC lesion segmentation, predictions often peak at class-1; select that channel
+        # For LIDC lesion segmentation, predictions often peak at class-2; select that channel
         if dataset == 'lidc':
-            cmd.extend(['--lesion_class_index', '1'])
+            cmd.extend(['--lesion_class_index', '2'])
         print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
         try:
