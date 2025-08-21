@@ -55,17 +55,25 @@ def organ_region_filter_out(organ_mask, tumor_mask):
 def denoise_pred(pred: np.ndarray, gate_with_organ: bool = True):
     """
     Post-process prediction channels.
-    Channels: 0 background, 1 organ, 2 tumor.
-    If gate_with_organ is True, tumor is constrained inside organ; otherwise tumor uses its own channel.
+    For 2-channel model: 0 background, 1 lesions
+    For 3-channel model: 0 background, 1 organ, 2 tumor.
     """
-    denoise_pred = np.zeros_like(pred)
-    denoise_pred[1, ...] = pred[1, ...]
-    if gate_with_organ:
-        denoise_pred[2, ...] = pred[1, ...] * pred[2, ...]
+    if pred.shape[0] == 2:
+        # 2-channel model: background + lesions
+        denoise_pred = np.zeros_like(pred)
+        denoise_pred[1, ...] = pred[1, ...]  # lesions
+        denoise_pred[0, ...] = 1 - denoise_pred[1, ...]  # background
+        return denoise_pred
     else:
-        denoise_pred[2, ...] = pred[2, ...]
-    denoise_pred[0, ...] = 1 - np.logical_or(denoise_pred[1, ...], denoise_pred[2, ...])
-    return denoise_pred
+        # 3-channel model: background + organ + tumor
+        denoise_pred = np.zeros_like(pred)
+        denoise_pred[1, ...] = pred[1, ...]
+        if gate_with_organ:
+            denoise_pred[2, ...] = pred[1, ...] * pred[2, ...]
+        else:
+            denoise_pred[2, ...] = pred[2, ...]
+        denoise_pred[0, ...] = 1 - np.logical_or(denoise_pred[1, ...], denoise_pred[2, ...])
+        return denoise_pred
 
 def cal_dice(pred, true):
     intersection = np.sum(pred[true==1]) * 2.0
@@ -93,7 +101,7 @@ def _get_model(args):
             feature_size=48
 
         model = SwinUNETR_v2(in_channels=1,
-                          out_channels=3,
+                          out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
                           img_size=(96, 96, 96),
                           feature_size=feature_size,
                           patch_size=2,
@@ -106,7 +114,7 @@ def _get_model(args):
         model = UNet(
                     spatial_dims=3,
                     in_channels=1,
-                    out_channels=3,
+                    out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
                     channels=(16, 32, 64, 128, 256),
                     strides=(2, 2, 2, 2),
                     num_res_units=2,
@@ -120,7 +128,7 @@ def _get_model(args):
         model = DynUNet(
             spatial_dims=3,
             in_channels=1,
-            out_channels=3,
+            out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
             kernel_size=kernels,
             strides=strides,
             upsample_kernel_size=strides[1:],
@@ -341,8 +349,9 @@ def main():
                 
                 # Only compute tumor metrics reliably for test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
-                lesion_idx = int(args.lesion_class_index)
-                print(f"DEBUG: Using lesion_idx = {lesion_idx}")
+                # For 2-channel model: channel 0=background, channel 1=lesions
+                lesion_idx = 1  # Fixed: lesions are in channel 1 for 2-channel model
+                print(f"DEBUG: Using lesion_idx = {lesion_idx} (2-channel model)")
                 print(f"DEBUG: val_outputs[{lesion_idx}].sum() = {val_outputs[lesion_idx, ...].sum()}")
                 
                 current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[lesion_idx, ...], label_bin, spacing_mm=spacing_mm)
