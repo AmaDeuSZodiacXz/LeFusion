@@ -47,7 +47,7 @@ def main():
     
     main_script_path = 'DiffTumor/STEP3.SegmentationModel/main.py'
     
-    # --- THESE ARE THE CORRECTED ARGUMENTS ---
+    # --- CORRECTED ARGUMENTS FOR LIDC LUNG NODULE SEGMENTATION ---
     training_command = [
         'python',
         main_script_path,
@@ -57,11 +57,11 @@ def main():
         '--max_epochs', '200',
         '--save_checkpoint',
         '--datafold_dir', 'datasets/LIDC_real',
-        '--tumor_type', 'liver',
-        '--organ_type', 'liver',
+        '--tumor_type', 'lung',  # Fixed: was 'liver', now 'lung'
+        '--organ_type', 'lung',  # Fixed: was 'liver', now 'lung'
         '--fold', '0',
-        '--workers', '1',  # ลดจาก 4 เป็น 1
-        '--cache_rate', '0.0'  # ลด cache rate เป็น 0 เพื่อความเร็ว
+        '--workers', '1',
+        '--cache_rate', '0.0'
     ]
     
     print("\n--- Starting segmentation training ---")
