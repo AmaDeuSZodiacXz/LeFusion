@@ -19,7 +19,7 @@ import shutil
 import re
 
 class SegmentationTrainer:
-    def __init__(self, config_path="../configs/experiment_config.yaml"):
+    def __init__(self, config_path="../configs/experiment_config.yaml", keep_temp: bool = False):
         """Initialize segmentation trainer with config"""
         # Get the evaluation_pipeline_v2 directory as base
         script_dir = Path(__file__).parent  # training/
@@ -35,6 +35,8 @@ class SegmentationTrainer:
         trained_models_dir_name = output_cfg.get("trained_models", "trained_models")
         self.output_dir = self.base_dir / trained_models_dir_name
         self.checkpoint_file = self.output_dir / "training_checkpoint.json"
+        # Whether to keep the combined temp data directory after training
+        self.keep_temp_combined: bool = bool(keep_temp)
         
         print(f"📁 Base directory: {self.base_dir}")
         print(f"📁 Output directory (trained models): {self.output_dir}")
@@ -93,7 +95,9 @@ class SegmentationTrainer:
         so validation won't fail when organ pseudo masks are absent for this dataset.
         """
         try:
-            val_list = training_data_dir / f"real_{tumor_type}_val_0.txt"
+            # Use correct tumor type naming
+            tumor_name = "cardiac" if tumor_type == "cardiac" else "lung" 
+            val_list = training_data_dir / f"real_{tumor_name}_val_0.txt"
             if not val_list.exists():
                 return
             step3_root = (self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel").resolve()
@@ -206,8 +210,13 @@ class SegmentationTrainer:
         """Create train/val split files required by DiffTumor if missing.
         Format: each line 'imagesTr/xxx.nii.gz labelsTr/xxx.nii.gz' (relative paths).
         """
-        train_txt = data_root / "real_liver_train_0.txt"
-        val_txt = data_root / "real_liver_val_0.txt"
+        # Use appropriate split files based on dataset
+        if dataset == "emidec":
+            train_txt = data_root / "real_cardiac_train_0.txt"
+            val_txt = data_root / "real_cardiac_val_0.txt"
+        else:  # LIDC default
+            train_txt = data_root / "real_lung_train_0.txt"
+            val_txt = data_root / "real_lung_val_0.txt"
         images_dir = data_root / "imagesTr"
         labels_dir = data_root / "labelsTr"
         if not images_dir.exists() or not labels_dir.exists():
@@ -260,7 +269,70 @@ class SegmentationTrainer:
         with open(val_txt, "w") as f:
             for a, b in val_pairs:
                 f.write(f"{a} {b}\n")
-                
+
+    def _archive_splits_and_manifest(self, training_data_dir: Path, output_dir: Path, dataset: str) -> None:
+        """Copy train/val split files to the model output directory for auditing and
+        write a small leakage audit manifest (checks intersection with test.txt).
+        """
+        try:
+            splits_dir = output_dir / "splits"
+            splits_dir.mkdir(parents=True, exist_ok=True)
+            # Use appropriate split files based on dataset
+            if dataset == "emidec":
+                train_txt = training_data_dir / "real_cardiac_train_0.txt"
+                val_txt = training_data_dir / "real_cardiac_val_0.txt"
+            else:  # LIDC default
+                train_txt = training_data_dir / "real_lung_train_0.txt"
+                val_txt = training_data_dir / "real_lung_val_0.txt"
+            if train_txt.exists():
+                shutil.copy2(train_txt, splits_dir / train_txt.name)
+            if val_txt.exists():
+                shutil.copy2(val_txt, splits_dir / val_txt.name)
+
+            # Build leakage audit
+            audit: dict = {
+                "training_data_dir": str(training_data_dir.resolve()),
+                "images_count": len(list((training_data_dir / "imagesTr").rglob("*.nii.gz"))) if (training_data_dir / "imagesTr").exists() else 0,
+                "labels_count": len(list((training_data_dir / "labelsTr").rglob("*.nii.gz"))) if (training_data_dir / "labelsTr").exists() else 0,
+                "syn_label_count": len([p for p in (training_data_dir / "labelsTr").rglob("*.nii.gz")]) if (training_data_dir / "labelsTr").exists() else 0,
+                "contains_test_labels_in_train": 0,
+                "contains_test_labels_in_val": 0,
+                "sample_train_hits": [],
+                "sample_val_hits": [],
+            }
+            # Load exclusions from test.txt
+            test_exclusions = self._load_test_exclusions(dataset)
+            # Helper to parse a split file
+            def _collect_hits(txt_path: Path):
+                hits = []
+                if not txt_path.exists():
+                    return hits
+                try:
+                    with open(txt_path, "r") as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) < 2:
+                                continue
+                            lbl_rel = parts[1].lstrip("/")
+                            lbl_name = os.path.basename(lbl_rel)
+                            if lbl_name in test_exclusions:
+                                hits.append(lbl_name)
+                except Exception:
+                    pass
+                return hits
+            train_hits = _collect_hits(train_txt)
+            val_hits = _collect_hits(val_txt)
+            audit["contains_test_labels_in_train"] = len(train_hits)
+            audit["contains_test_labels_in_val"] = len(val_hits)
+            audit["sample_train_hits"] = train_hits[:20]
+            audit["sample_val_hits"] = val_hits[:20]
+
+            with open(splits_dir / "leakage_audit.json", "w") as f:
+                json.dump(audit, f, indent=2)
+        except Exception:
+            # Non-fatal; continue training
+            pass
+        
     def _add_synthetic_data(self, source_dir, target_dir):
         """Add synthetic data to combined directory"""
         # Copy synthetic images (recursively, files only)
@@ -347,6 +419,8 @@ class SegmentationTrainer:
         # Get output path
         output_dir = self.get_model_output_path(dataset, method, model_type, seg_model)
         os.makedirs(output_dir, exist_ok=True)
+        # Archive splits and write audit manifest for reproducibility
+        self._archive_splits_and_manifest(training_data_dir, output_dir, dataset)
         
         # Build training command (absolute path to avoid CWD issues)
         diff_tumor_main = (self.base_dir.parent / "evaluation_pipeline" / "DiffTumor" / "STEP3.SegmentationModel" / "main.py").resolve()
@@ -364,8 +438,8 @@ class SegmentationTrainer:
             "--val_every", str(self.config['training']['val_every']),
             "--save_checkpoint",
             "--datafold_dir", str(training_data_dir),
-            "--tumor_type", "liver",  # Default for LIDC
-            "--organ_type", "liver",
+            "--tumor_type", "lung",  # Fixed: LIDC is lung, not liver
+            "--organ_type", "lung",  # Fixed: LIDC is lung, not liver
             "--fold", "0"
         ]
         # Pass checkpoint to resume if provided
@@ -378,8 +452,8 @@ class SegmentationTrainer:
             tumor_type = "cardiac"
             organ_type = "heart"
         else:
-            tumor_type = "liver"
-            organ_type = "liver"
+            tumor_type = "lung"  # Fixed: LIDC default should be lung
+            organ_type = "lung"  # Fixed: LIDC default should be lung
         # Create missing pseudo organ masks by copying val labels (prevents FileNotFound during validation)
         self._ensure_val_pseudo_labels(training_data_dir, organ_type=organ_type, tumor_type=tumor_type)
             
@@ -415,9 +489,20 @@ class SegmentationTrainer:
             return False
         finally:
             # Clean up temporary combined data
-            if method != "baseline" and training_data_dir != Path(self.config['datasets'][dataset]['real_data_dir']):
-                if training_data_dir.exists():
-                    shutil.rmtree(training_data_dir)
+            try:
+                if not self.keep_temp_combined and method != "baseline":
+                    combined_root = (self.base_dir / "temp_training_data").resolve()
+                    td_resolved = training_data_dir.resolve()
+                    is_temp = False
+                    try:
+                        td_resolved.relative_to(combined_root)
+                        is_temp = True
+                    except Exception:
+                        is_temp = False
+                    if is_temp and td_resolved.exists():
+                        shutil.rmtree(td_resolved)
+            except Exception:
+                pass
                     
     def train_all(self, dataset="lidc", methods=None, model_types=None, seg_models=None, resume=False):
         """Train all specified configurations"""
@@ -551,10 +636,12 @@ def main():
                         help="Resume from checkpoint")
     parser.add_argument("--config", default="../configs/experiment_config.yaml",
                         help="Path to config file")
+    parser.add_argument("--keep-temp", action="store_true",
+                        help="Keep combined temp training data for auditing")
     
     args = parser.parse_args()
     
-    trainer = SegmentationTrainer(args.config)
+    trainer = SegmentationTrainer(args.config, keep_temp=args.keep_temp)
     
     # Process datasets
     datasets = ["lidc", "emidec"] if args.dataset == "all" else [args.dataset]
