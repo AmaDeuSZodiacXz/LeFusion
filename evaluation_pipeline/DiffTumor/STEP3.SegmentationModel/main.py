@@ -97,7 +97,7 @@ parser.add_argument('--num_heads', default=16, type=int)
 parser.add_argument('--mlp_dim', default=3072, type=int)
 parser.add_argument('--hidden_size', default=768, type=int)
 parser.add_argument('--in_channels', default=1, type=int)
-parser.add_argument('--out_channels', default=3, type=int)
+parser.add_argument('--out_channels', default=2, type=int)  # Fixed: LIDC uses binary segmentation
 parser.add_argument('--num_classes', default=3, type=int)
 parser.add_argument('--res_block', action='store_true')
 parser.add_argument('--conv_block', action='store_true')
