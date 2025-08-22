@@ -226,8 +226,8 @@ def _get_loader(args):
                 nearest_interp=False,
                 to_tensor=True,
             ),
-            AsDiscreted(keys="pred", argmax=True, to_onehot=3),
-            # For LIDC test set masks (tumor-only), keep label binary instead of 3-class one-hot
+            AsDiscreted(keys="pred", argmax=True, to_onehot=2),
+            # For LIDC binary segmentation: pred and label both use binary format
             AsDiscreted(keys="label", threshold=0.5),
         ])
         return val_loader, post_transforms
@@ -328,66 +328,22 @@ def main():
                 if not args.disable_organ_override:
                     val_outputs[1, ...] = val_organ_pseudo[1, ...]
 
-            # For test set, do not gate tumor by organ; labels are binary lesion masks
+            # For LIDC binary segmentation (2-channel model: background + nodule)
             if args.use_test_set:
-                # DEBUG: Print shapes and content before processing
-                print(f"DEBUG: val_outputs.shape = {val_outputs.shape}")
-                print(f"DEBUG: val_outputs channels sum = {[val_outputs[i].sum() for i in range(val_outputs.shape[0])]}")
-                
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=False)
                 
-                # DEBUG: Print shapes and content after processing
-                print(f"DEBUG: after denoise_pred, val_outputs channels sum = {[val_outputs[i].sum() for i in range(val_outputs.shape[0])]}")
-                
-                # Ensure label is (H, W, D)
+                # Ensure label is (H, W, D) for binary comparison
                 if val_labels.ndim == 4 and val_labels.shape[0] == 1:
                     label_bin = val_labels[0, ...]
                 else:
                     label_bin = val_labels
-                    
-                print(f"DEBUG: label_bin.shape = {label_bin.shape}, label_bin.sum() = {label_bin.sum()}")
                 
-                # Only compute tumor metrics reliably for test set
+                # For 2-channel model: channel 0 = background, channel 1 = nodule
+                # Use channel 1 (nodule) predictions directly
+                lesion_prediction = val_outputs[1, ...]
+                
+                # No organ metrics for LIDC test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
-                # Debug: Check if channel 2 has any tiny values
-                print(f"DEBUG: Channel 2 min/max/mean: {val_outputs[2, ...].min():.6f} / {val_outputs[2, ...].max():.6f} / {val_outputs[2, ...].mean():.6f}")
-                print(f"DEBUG: Channel 2 non-zero count: {np.count_nonzero(val_outputs[2, ...])}")
-                
-                # Try using channel 2 directly (the tumor channel)
-                if val_outputs[2, ...].max() > 0:
-                    # Channel 2 has some predictions - use it
-                    lesion_prediction = val_outputs[2, ...]
-                    print(f"DEBUG: Using channel 2 (tumor channel)")
-                else:
-                    # Fallback to channel 1 if channel 2 is empty
-                    # Channel 1 contains lung tissue - need conservative approach
-                    channel1_pred = val_outputs[1, ...]
-                    
-                    # Find a reasonable threshold - try different percentiles
-                    non_zero_vals = channel1_pred[channel1_pred > 0]
-                    if len(non_zero_vals) > 0:
-                        # Try 75th percentile first, then 50th if that's too strict
-                        threshold_75 = np.percentile(non_zero_vals, 75)
-                        threshold_50 = np.percentile(non_zero_vals, 50)
-                        
-                        # Use 75th percentile but ensure we get some predictions
-                        pred_75 = (channel1_pred > threshold_75).astype(float)
-                        pred_50 = (channel1_pred > threshold_50).astype(float)
-                        
-                        if pred_75.sum() > 0:
-                            lesion_prediction = pred_75
-                            threshold = threshold_75
-                            print(f"DEBUG: Using channel 1 with 75th percentile threshold {threshold:.3f}")
-                        else:
-                            lesion_prediction = pred_50
-                            threshold = threshold_50
-                            print(f"DEBUG: Using channel 1 with 50th percentile threshold {threshold:.3f}")
-                    else:
-                        lesion_prediction = channel1_pred
-                        print(f"DEBUG: Using channel 1 without threshold (no positive values)")
-                
-                print(f"DEBUG: final lesion_prediction.sum() = {lesion_prediction.sum()}")
-                
                 current_tumor_dice, current_tumor_nsd = cal_dice_nsd(lesion_prediction, label_bin, spacing_mm=spacing_mm)
             else:
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=not args.disable_organ_override)
@@ -411,15 +367,15 @@ def main():
             output_dir = os.path.join(args.save_dir, args.model_name, str(args.val_overlap), 'pred')
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
-            # val_outputs = np.argmax(val_outputs, axis=0)
+            # Create output prediction with proper class labels
             val_outputs_ = np.zeros_like(val_outputs[0])
-            # Save organ if available (not used for test evaluation), lesion as class 2
             if not args.use_test_set:
+                # 3-channel mode: organ=1, tumor=2
                 val_outputs_[val_outputs[1] == 1] = 1
                 val_outputs_[val_outputs[2] == 1] = 2
             else:
-                lesion_idx = int(args.lesion_class_index)
-                val_outputs_[val_outputs[lesion_idx] == 1] = 2
+                # LIDC binary mode: nodule predictions in channel 1, save as class 1
+                val_outputs_[val_outputs[1] == 1] = 1
             
             nib.save(
                 nib.Nifti1Image(val_outputs_.astype(np.uint8), original_affine), os.path.join(output_dir, f'{name}.nii.gz')
