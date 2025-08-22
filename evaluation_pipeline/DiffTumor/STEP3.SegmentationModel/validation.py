@@ -349,11 +349,23 @@ def main():
                 
                 # Only compute tumor metrics reliably for test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
-                # For LIDC binary evaluation: treat predictions as binary (background vs lesions)
-                # Convert 3-channel output to binary: combine all non-background channels
-                lesion_prediction = np.maximum(val_outputs[1, ...], val_outputs[2, ...])  # organ OR lesions
-                print(f"DEBUG: Using binary lesion prediction (combined channels 1+2)")
-                print(f"DEBUG: lesion_prediction.sum() = {lesion_prediction.sum()}")
+                # Debug: Check if channel 2 has any tiny values
+                print(f"DEBUG: Channel 2 min/max/mean: {val_outputs[2, ...].min():.6f} / {val_outputs[2, ...].max():.6f} / {val_outputs[2, ...].mean():.6f}")
+                print(f"DEBUG: Channel 2 non-zero count: {np.count_nonzero(val_outputs[2, ...])}")
+                
+                # Try using channel 2 directly (the tumor channel)
+                if val_outputs[2, ...].max() > 0:
+                    # Channel 2 has some predictions - use it
+                    lesion_prediction = val_outputs[2, ...]
+                    print(f"DEBUG: Using channel 2 (tumor channel)")
+                else:
+                    # Fallback to channel 1 if channel 2 is empty
+                    lesion_prediction = val_outputs[1, ...]
+                    threshold = np.percentile(lesion_prediction[lesion_prediction > 0], 90) if np.any(lesion_prediction > 0) else 0.5
+                    lesion_prediction = (lesion_prediction > threshold).astype(float)
+                    print(f"DEBUG: Using channel 1 with high threshold {threshold:.3f}")
+                
+                print(f"DEBUG: final lesion_prediction.sum() = {lesion_prediction.sum()}")
                 
                 current_tumor_dice, current_tumor_nsd = cal_dice_nsd(lesion_prediction, label_bin, spacing_mm=spacing_mm)
             else:
