@@ -234,17 +234,31 @@ def _get_transform(args):
     ]
     )
 
-    val_transform = transforms.Compose(
-        [
-            LoadImage_val(keys=["image", "label", "organ_pseudo"]),
-            transforms.AddChanneld(keys=["image", "label", "organ_pseudo"]),
-            transforms.Orientationd(keys=["image", "label", "organ_pseudo"], axcodes="RAS"),
-            transforms.Spacingd(keys=["image", "label", "organ_pseudo"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest", "nearest")),
-            transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
-            transforms.SpatialPadd(keys=["image", "label", "organ_pseudo"], mode=["minimum", "constant", "constant"], spatial_size=[96, 96, 96]),
-            transforms.ToTensord(keys=["image", "label", "organ_pseudo"]),
-        ]
-    )
+    # For LIDC and other binary segmentation, we don't have organ_pseudo
+    if args.num_classes == 2:
+        val_transform = transforms.Compose(
+            [
+                LoadImage_val(keys=["image", "label"]),
+                transforms.AddChanneld(keys=["image", "label"]),
+                transforms.Orientationd(keys=["image", "label"], axcodes="RAS"),
+                transforms.Spacingd(keys=["image", "label"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest")),
+                transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+                transforms.SpatialPadd(keys=["image", "label"], mode=["minimum", "constant"], spatial_size=[96, 96, 96]),
+                transforms.ToTensord(keys=["image", "label"]),
+            ]
+        )
+    else:
+        val_transform = transforms.Compose(
+            [
+                LoadImage_val(keys=["image", "label", "organ_pseudo"]),
+                transforms.AddChanneld(keys=["image", "label", "organ_pseudo"]),
+                transforms.Orientationd(keys=["image", "label", "organ_pseudo"], axcodes="RAS"),
+                transforms.Spacingd(keys=["image", "label", "organ_pseudo"], pixdim=(1.0, 1.0, 1.0), mode=("bilinear", "nearest", "nearest")),
+                transforms.ScaleIntensityRanged(keys=["image"], a_min=-175, a_max=250, b_min=0.0, b_max=1.0, clip=True),
+                transforms.SpatialPadd(keys=["image", "label", "organ_pseudo"], mode=["minimum", "constant", "constant"], spatial_size=[96, 96, 96]),
+                transforms.ToTensord(keys=["image", "label", "organ_pseudo"]),
+            ]
+        )
     
     return train_transform, val_transform
 
@@ -407,10 +421,17 @@ def main_worker(gpu, args):
         name = line.strip().split()[1].split('.')[0]
         val_img.append(data_root + line.strip().split()[0])
         val_lbl.append(data_root + line.strip().split()[1])
-        val_pseudo_lbl.append('organ_pseudo_swin_new/{}/'.format(organ_type) + os.path.basename(line.strip().split()[1]))
+        if args.num_classes > 2:
+            val_pseudo_lbl.append('organ_pseudo_swin_new/{}/'.format(organ_type) + os.path.basename(line.strip().split()[1]))
         val_name.append(name)
-    data_dicts_val = [{'image': image, 'label': label, 'organ_pseudo': organ_pseudo, 'name': name}
-                for image, label, organ_pseudo, name in zip(val_img, val_lbl, val_pseudo_lbl, val_name)]
+    
+    # Create data dictionaries based on whether we have organ_pseudo
+    if args.num_classes == 2:
+        data_dicts_val = [{'image': image, 'label': label, 'name': name}
+                    for image, label, name in zip(val_img, val_lbl, val_name)]
+    else:
+        data_dicts_val = [{'image': image, 'label': label, 'organ_pseudo': organ_pseudo, 'name': name}
+                    for image, label, organ_pseudo, name in zip(val_img, val_lbl, val_pseudo_lbl, val_name)]
     print('val len {}'.format(len(data_dicts_val)))
 
     
