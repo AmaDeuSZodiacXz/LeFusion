@@ -337,7 +337,7 @@ def val_epoch(model, loader, val_shape_dict, epoch, loss_func, args, model_infer
             pred = resample(logits[0], val_shape)
             y = resample(target[0], val_shape)
             organ_pseudo = resample(organ_pseudo[0], val_shape) 
-            pred = convert_to_one_hot(pred, 3)
+            pred = convert_to_one_hot(pred, args.num_classes)
             processed_pred = denoise_pred(pred, organ_pseudo)
 
             dice_list_sub = []
@@ -390,7 +390,13 @@ def val_epoch(model, loader, val_shape_dict, epoch, loss_func, args, model_infer
 
             # print(args.rank, 'end1')
             if args.rank == 0:
-                print('Batch mean: Liver: {}, Tumor: {}, all:{}'.format(avg_classes[0], avg_classes[1], np.mean(avg_classes)))
+                # Handle both 2-class (LIDC) and 3-class (liver/kidney/pancreas) cases
+                if len(avg_classes) >= 2:
+                    print('Batch mean: Organ: {}, Tumor: {}, all:{}'.format(avg_classes[0], avg_classes[1], np.mean(avg_classes)))
+                elif len(avg_classes) == 1:
+                    print('Batch mean: Nodule: {}, all:{}'.format(avg_classes[0], np.mean(avg_classes)))
+                else:
+                    print('Batch mean: all:{}'.format(np.mean(avg_classes) if len(avg_classes) > 0 else 0))
                 print('Val {}/{} {}/{}'.format(epoch, args.max_epochs, idx, len(loader)),
                     'loss: {:.4f}'.format(run_loss.avg),
                     'tumor_loss {:.4f}'.format(val_tumor_loss.avg),

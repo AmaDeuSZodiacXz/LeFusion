@@ -33,7 +33,7 @@ parser.add_argument('--checkpoint', action='store_true')
 parser.add_argument('--log_dir', default=None, type=str)
 parser.add_argument('--feature_size', default=16, type=int)
 parser.add_argument('--val_overlap', default=0.75, type=float)
-parser.add_argument('--num_classes', default=3, type=int)
+parser.add_argument('--num_classes', default=2, type=int)  # Default to 2 for LIDC binary segmentation
 
 parser.add_argument('--model', default='unet', type=str)
 parser.add_argument('--swin_type', default='base', type=str)
@@ -101,7 +101,7 @@ def _get_model(args):
             feature_size=48
 
         model = SwinUNETR_v2(in_channels=1,
-                          out_channels=3,  # Temporary: keep 3 channels for existing weights
+                          out_channels=args.num_classes,
                           img_size=(96, 96, 96),
                           feature_size=feature_size,
                           patch_size=2,
@@ -114,7 +114,7 @@ def _get_model(args):
         model = UNet(
                     spatial_dims=3,
                     in_channels=1,
-                    out_channels=3,  # Temporary: keep 3 channels for existing weights
+                    out_channels=args.num_classes,
                     channels=(16, 32, 64, 128, 256),
                     strides=(2, 2, 2, 2),
                     num_res_units=2,
@@ -128,7 +128,7 @@ def _get_model(args):
         model = DynUNet(
             spatial_dims=3,
             in_channels=1,
-            out_channels=3,  # Temporary: keep 3 channels for existing weights
+            out_channels=args.num_classes,
             kernel_size=kernels,
             strides=strides,
             upsample_kernel_size=strides[1:],
