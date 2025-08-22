@@ -525,7 +525,7 @@ class ModelEvaluator:
                 checkpoint_epoch=checkpoint_epoch,
                 use_best_checkpoint=use_best_checkpoint,
             )
-            if gen_pred_dir.exists():
+            if gen_pred_dir is not None and gen_pred_dir.exists():
                 # Prefer reading validator's metrics.csv for consistency with printed per-case values
                 csv_stats = self._read_validation_metrics_csv(save_parent=predictions_root, seg_model=seg_model, val_overlap=0.75)
                 if csv_stats is not None:
@@ -558,6 +558,10 @@ class ModelEvaluator:
             else:
                 print(f"❌ No predictions found to evaluate in {predictions_dir}")
                 return None
+        else:
+            # No checkpoint found or predictions could not be generated
+            print(f"❌ Cannot evaluate {method}+{model_type}+{seg_model}: No checkpoint available")
+            return None
             
         # Calculate statistics
         df = pd.DataFrame(results)
@@ -709,7 +713,9 @@ class ModelEvaluator:
                         print(f"⏭️  Skipping (no checkpoint): {method}+{model_type}+{seg_model}")
                         continue
 
-                    stats = self.evaluate_model(dataset, method, model_type, seg_model)
+                    stats = self.evaluate_model(dataset, method, model_type, seg_model, 
+                                               checkpoint_epoch=checkpoint_epoch, 
+                                               use_best_checkpoint=use_best_checkpoint)
                     
                     if stats:
                         all_results.append(stats)
