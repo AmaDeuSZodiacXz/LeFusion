@@ -360,10 +360,31 @@ def main():
                     print(f"DEBUG: Using channel 2 (tumor channel)")
                 else:
                     # Fallback to channel 1 if channel 2 is empty
-                    lesion_prediction = val_outputs[1, ...]
-                    threshold = np.percentile(lesion_prediction[lesion_prediction > 0], 90) if np.any(lesion_prediction > 0) else 0.5
-                    lesion_prediction = (lesion_prediction > threshold).astype(float)
-                    print(f"DEBUG: Using channel 1 with high threshold {threshold:.3f}")
+                    # Channel 1 contains lung tissue - need conservative approach
+                    channel1_pred = val_outputs[1, ...]
+                    
+                    # Find a reasonable threshold - try different percentiles
+                    non_zero_vals = channel1_pred[channel1_pred > 0]
+                    if len(non_zero_vals) > 0:
+                        # Try 75th percentile first, then 50th if that's too strict
+                        threshold_75 = np.percentile(non_zero_vals, 75)
+                        threshold_50 = np.percentile(non_zero_vals, 50)
+                        
+                        # Use 75th percentile but ensure we get some predictions
+                        pred_75 = (channel1_pred > threshold_75).astype(float)
+                        pred_50 = (channel1_pred > threshold_50).astype(float)
+                        
+                        if pred_75.sum() > 0:
+                            lesion_prediction = pred_75
+                            threshold = threshold_75
+                            print(f"DEBUG: Using channel 1 with 75th percentile threshold {threshold:.3f}")
+                        else:
+                            lesion_prediction = pred_50
+                            threshold = threshold_50
+                            print(f"DEBUG: Using channel 1 with 50th percentile threshold {threshold:.3f}")
+                    else:
+                        lesion_prediction = channel1_pred
+                        print(f"DEBUG: Using channel 1 without threshold (no positive values)")
                 
                 print(f"DEBUG: final lesion_prediction.sum() = {lesion_prediction.sum()}")
                 
