@@ -271,9 +271,9 @@ def _get_loader(args):
                 nearest_interp=False,
                 to_tensor=True,
             ),
-            AsDiscreted(keys="pred", argmax=True, to_onehot=3),
-            AsDiscreted(keys="label", to_onehot=3),
-            AsDiscreted(keys="organ_pseudo", to_onehot=3),
+            AsDiscreted(keys="pred", argmax=True, to_onehot=args.num_classes),
+            AsDiscreted(keys="label", to_onehot=args.num_classes),
+            AsDiscreted(keys="organ_pseudo", to_onehot=args.num_classes),
         ])
         
         return val_org_loader, post_transforms
