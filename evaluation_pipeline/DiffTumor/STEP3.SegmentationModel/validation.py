@@ -101,7 +101,7 @@ def _get_model(args):
             feature_size=48
 
         model = SwinUNETR_v2(in_channels=1,
-                          out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
+                          out_channels=3,  # Temporary: keep 3 channels for existing weights
                           img_size=(96, 96, 96),
                           feature_size=feature_size,
                           patch_size=2,
@@ -114,7 +114,7 @@ def _get_model(args):
         model = UNet(
                     spatial_dims=3,
                     in_channels=1,
-                    out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
+                    out_channels=3,  # Temporary: keep 3 channels for existing weights
                     channels=(16, 32, 64, 128, 256),
                     strides=(2, 2, 2, 2),
                     num_res_units=2,
@@ -128,7 +128,7 @@ def _get_model(args):
         model = DynUNet(
             spatial_dims=3,
             in_channels=1,
-            out_channels=2,  # Fixed: LIDC uses binary segmentation (background + lesions)
+            out_channels=3,  # Temporary: keep 3 channels for existing weights
             kernel_size=kernels,
             strides=strides,
             upsample_kernel_size=strides[1:],
@@ -349,12 +349,13 @@ def main():
                 
                 # Only compute tumor metrics reliably for test set
                 current_liver_dice, current_liver_nsd = (0.0, 0.0)
-                # For 2-channel model: channel 0=background, channel 1=lesions
-                lesion_idx = 1  # Fixed: lesions are in channel 1 for 2-channel model
-                print(f"DEBUG: Using lesion_idx = {lesion_idx} (2-channel model)")
-                print(f"DEBUG: val_outputs[{lesion_idx}].sum() = {val_outputs[lesion_idx, ...].sum()}")
+                # For LIDC binary evaluation: treat predictions as binary (background vs lesions)
+                # Convert 3-channel output to binary: combine all non-background channels
+                lesion_prediction = np.maximum(val_outputs[1, ...], val_outputs[2, ...])  # organ OR lesions
+                print(f"DEBUG: Using binary lesion prediction (combined channels 1+2)")
+                print(f"DEBUG: lesion_prediction.sum() = {lesion_prediction.sum()}")
                 
-                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(val_outputs[lesion_idx, ...], label_bin, spacing_mm=spacing_mm)
+                current_tumor_dice, current_tumor_nsd = cal_dice_nsd(lesion_prediction, label_bin, spacing_mm=spacing_mm)
             else:
                 val_outputs = denoise_pred(val_outputs, gate_with_organ=not args.disable_organ_override)
                 current_liver_dice, current_liver_nsd = cal_dice_nsd(val_outputs[1, ...], val_labels[1, ...], spacing_mm=spacing_mm)
