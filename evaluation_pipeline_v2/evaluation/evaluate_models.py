@@ -157,21 +157,99 @@ class ModelEvaluator:
         print(f"✅ Staged {copied} test pairs to {staging_root}")
         return staging_root
     
-    def _ensure_modelpt(self, model_dir: Path) -> None:
-        """Ensure model.pt exists in model_dir by copying model_final.pt if needed."""
+    def _ensure_modelpt(self, model_dir: Path, checkpoint_epoch: int = None, use_best: bool = False) -> str:
+        """Ensure model checkpoint exists and return the checkpoint name to use.
+        
+        Args:
+            model_dir: Directory containing model checkpoints
+            checkpoint_epoch: Specific epoch to load (e.g., 50, 100, 150)
+            use_best: Whether to use best_metric_model.pt if available
+            
+        Returns:
+            Name of checkpoint file to use
+        """
         model_pt = model_dir / 'model.pt'
+        
+        # Priority 1: Use specific epoch if requested
+        if checkpoint_epoch is not None:
+            # Try different naming conventions
+            epoch_candidates = [
+                f'model_epoch_{checkpoint_epoch}.pt',
+                f'checkpoint_epoch_{checkpoint_epoch}.pt',
+                f'model_{checkpoint_epoch}.pt',
+                f'epoch_{checkpoint_epoch}.pt'
+            ]
+            
+            for cand_name in epoch_candidates:
+                epoch_checkpoint = model_dir / cand_name
+                if epoch_checkpoint.exists():
+                    # Copy to model.pt for compatibility
+                    try:
+                        shutil.copy2(epoch_checkpoint, model_pt)
+                        print(f"✅ Using checkpoint from epoch {checkpoint_epoch}: {cand_name}")
+                        if checkpoint_epoch < 200:
+                            print(f"⚠️  Warning: Training incomplete (epoch {checkpoint_epoch}/200) - results may not be optimal")
+                        return cand_name
+                    except Exception as e:
+                        print(f"⚠️  Could not copy checkpoint: {e}")
+            
+            print(f"⚠️  Checkpoint for epoch {checkpoint_epoch} not found, falling back to default")
+        
+        # Priority 2: Use best checkpoint if requested
+        if use_best:
+            best_candidates = ['best_metric_model.pt', 'best_metric_model.pth']
+            for cand in best_candidates:
+                src = model_dir / cand
+                if src.exists():
+                    try:
+                        shutil.copy2(src, model_pt)
+                        print(f"✅ Using best checkpoint: {cand}")
+                        return cand
+                    except Exception as e:
+                        print(f"⚠️  Could not copy best checkpoint: {e}")
+        
+        # Priority 3: Use existing model.pt if available
         if model_pt.exists():
-            return
-        for cand in ['model_final.pt', 'best_metric_model.pth']:
+            print(f"ℹ️  Using existing model.pt")
+            return 'model.pt'
+        
+        # Priority 4: Try to find any available checkpoint
+        for cand in ['model_final.pt', 'model.pt', 'best_metric_model.pth']:
             src = model_dir / cand
             if src.exists():
                 try:
                     shutil.copy2(src, model_pt)
                     print(f"ℹ️  Copied {src.name} -> model.pt for validation")
-                    return
+                    return src.name
                 except Exception as e:
                     print(f"⚠️  Could not prepare model.pt: {e}")
-        # If nothing found, do nothing; caller will handle
+        
+        # Last resort: Find any .pt file
+        import glob
+        checkpoints = list(model_dir.glob('*.pt'))
+        if checkpoints:
+            # Sort by modification time and use the latest
+            checkpoints.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            latest = checkpoints[0]
+            try:
+                shutil.copy2(latest, model_pt)
+                print(f"ℹ️  Using latest checkpoint found: {latest.name}")
+                
+                # Check if training was incomplete
+                if 'epoch' in latest.name:
+                    import re
+                    match = re.search(r'epoch[_]?(\d+)', latest.name)
+                    if match:
+                        epoch_num = int(match.group(1))
+                        if epoch_num < 200:
+                            print(f"⚠️  Warning: Training incomplete (epoch {epoch_num}/200) - results may not be optimal")
+                
+                return latest.name
+            except Exception as e:
+                print(f"⚠️  Could not copy checkpoint: {e}")
+        
+        print(f"❌ No checkpoint found in {model_dir}")
+        return None
     
     def _ensure_val_pseudo_labels(self, data_root: Path, organ_type: str, tumor_type: str) -> None:
         """Create missing organ pseudo labels required by STEP3 validation by copying val labels."""
@@ -200,9 +278,12 @@ class ModelEvaluator:
         except Exception:
             pass
     
-    def _run_validation_generate_predictions(self, dataset: str, method: str, model_type: str, seg_model: str, data_root: Path, model_dir: Path, save_parent: Path, val_overlap: float = 0.75) -> Path:
+    def _run_validation_generate_predictions(self, dataset: str, method: str, model_type: str, seg_model: str, data_root: Path, model_dir: Path, save_parent: Path, val_overlap: float = 0.75, checkpoint_epoch: int = None, use_best_checkpoint: bool = False) -> Path:
         """Invoke STEP3 validation.py to generate predictions and return the predictions directory path."""
-        self._ensure_modelpt(model_dir)
+        checkpoint_name = self._ensure_modelpt(model_dir, checkpoint_epoch=checkpoint_epoch, use_best=use_best_checkpoint)
+        if checkpoint_name is None:
+            print(f"❌ No checkpoint found for evaluation")
+            return None
         # Ensure pseudo labels (names are only used for legacy val split)
         tumor_type = 'lung' if dataset == 'lidc' else 'cardiac'
         organ_type = 'lung' if dataset == 'lidc' else 'heart'
@@ -348,8 +429,17 @@ class ModelEvaluator:
             'nsd': nsd
         }
         
-    def evaluate_model(self, dataset, method, model_type, seg_model):
-        """Evaluate a trained model on test set"""
+    def evaluate_model(self, dataset, method, model_type, seg_model, checkpoint_epoch=None, use_best_checkpoint=False):
+        """Evaluate a trained model on test set
+        
+        Args:
+            dataset: Dataset name (lidc or emidec)
+            method: Method name (baseline, lefusion, etc.)
+            model_type: Model type (pretrained or from_scratch)
+            seg_model: Segmentation model (nnunet or swinunetr)
+            checkpoint_epoch: Specific epoch to evaluate (e.g., 50, 100, 150)
+            use_best_checkpoint: Whether to use best_metric_model.pt if available
+        """
         print(f"\n📊 Evaluating {seg_model}")
         print(f"   Dataset: {dataset}")
         print(f"   Method: {method}")
@@ -432,6 +522,8 @@ class ModelEvaluator:
                 dataset=dataset, method=method, model_type=model_type, seg_model=seg_model,
                 data_root=test_data_dir, model_dir=model_dir, save_parent=predictions_root,
                 val_overlap=0.75,
+                checkpoint_epoch=checkpoint_epoch,
+                use_best_checkpoint=use_best_checkpoint,
             )
             if gen_pred_dir.exists():
                 # Prefer reading validator's metrics.csv for consistency with printed per-case values
@@ -541,8 +633,17 @@ class ModelEvaluator:
             
         print("-"*105)
         
-    def evaluate_all(self, dataset="lidc", methods=None, model_types=None, seg_models=None):
-        """Evaluate all specified configurations"""
+    def evaluate_all(self, dataset="lidc", methods=None, model_types=None, seg_models=None, checkpoint_epoch=None, use_best_checkpoint=False):
+        """Evaluate all specified configurations
+        
+        Args:
+            dataset: Dataset name
+            methods: List of methods to evaluate
+            model_types: List of model types
+            seg_models: List of segmentation models
+            checkpoint_epoch: Specific epoch to evaluate
+            use_best_checkpoint: Whether to use best checkpoint
+        """
         
         # Default values
         if methods is None:
@@ -593,12 +694,17 @@ class ModelEvaluator:
                                     return -1
                             epoch_ckpts.sort(key=epoch_num)
                             ckpt = epoch_ckpts[-1]
-                    if ckpt is not None:
+                    # If specific epoch requested, let evaluate_model handle it
+                    if checkpoint_epoch is not None:
+                        print(f"🎯 Evaluating at specified epoch {checkpoint_epoch}")
+                    elif use_best_checkpoint:
+                        print(f"🎯 Using best checkpoint if available")
+                    elif ckpt is not None:
                         last_epoch = self._get_checkpoint_epoch(ckpt)
                         max_epochs = int(self.config['training']['max_epochs'])
                         if last_epoch < max_epochs - 1:
-                            print(f"⏭️  Skipping (incomplete): {method}+{model_type}+{seg_model} at epoch {last_epoch+1}/{max_epochs}")
-                            continue
+                            print(f"⚠️  Warning: Training incomplete ({method}+{model_type}+{seg_model} at epoch {last_epoch+1}/{max_epochs})")
+                            print(f"   Continuing with evaluation at epoch {last_epoch+1}...")
                     else:
                         print(f"⏭️  Skipping (no checkpoint): {method}+{model_type}+{seg_model}")
                         continue
@@ -658,6 +764,10 @@ def main():
                         help="Path to config file")
     parser.add_argument("--compare-paper", action="store_true",
                         help="Compare with paper results")
+    parser.add_argument("--checkpoint-epoch", type=int, default=None,
+                        help="Specific epoch checkpoint to evaluate (e.g., 50, 100, 150)")
+    parser.add_argument("--use-best-checkpoint", action="store_true",
+                        help="Use best_metric_model.pt if available instead of final checkpoint")
     
     args = parser.parse_args()
     
@@ -680,7 +790,9 @@ def main():
             dataset=dataset,
             methods=methods,
             model_types=model_types,
-            seg_models=seg_models
+            seg_models=seg_models,
+            checkpoint_epoch=args.checkpoint_epoch,
+            use_best_checkpoint=args.use_best_checkpoint
         )
         
         # Compare with paper if requested
