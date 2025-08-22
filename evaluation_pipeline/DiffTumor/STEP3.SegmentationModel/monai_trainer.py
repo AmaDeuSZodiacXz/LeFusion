@@ -17,21 +17,28 @@ sys.path.append(os.getcwd())
 
 def denoise_pred(pred: np.ndarray, organ_pseudo: np.ndarray):
     """
-    # 0: background, 1: liver, 2: tumor.
-    pred.shape: (3, H, W, D)
+    Post-process predictions.
+    For 3-channel: 0: background, 1: organ, 2: tumor.
+    For 2-channel: 0: background, 1: lesion/nodule.
     """
+    num_channels = pred.shape[0]
     denoise_pred = np.zeros_like(pred)
 
-    denoise_pred[1, ...] = (organ_pseudo == 1)
-    denoise_pred[2, ...] = denoise_pred[1, ...] * pred[2,...]
-
-    denoise_pred[0,...] = 1 - np.logical_or(denoise_pred[1,...], denoise_pred[2,...])
+    if num_channels == 2:
+        # Binary segmentation (e.g., LIDC lung nodules)
+        denoise_pred[1, ...] = pred[1, ...]
+        denoise_pred[0, ...] = 1 - denoise_pred[1, ...]
+    else:
+        # 3-channel segmentation (liver/kidney/pancreas with organ and tumor)
+        denoise_pred[1, ...] = (organ_pseudo == 1)
+        denoise_pred[2, ...] = denoise_pred[1, ...] * pred[2,...]
+        denoise_pred[0,...] = 1 - np.logical_or(denoise_pred[1,...], denoise_pred[2,...])
 
     return denoise_pred
 
 def convert_to_one_hot(y, C):
     h,w,d = y.shape
-    return np.eye(C)[y.reshape(-1)].T.reshape((3,h,w,d))
+    return np.eye(C)[y.reshape(-1)].T.reshape((C,h,w,d))
 
 def json_get_fold(datalist, basedir, fold=0, key='training'):
 
@@ -308,11 +315,15 @@ def val_epoch(model, loader, val_shape_dict, epoch, loss_func, args, model_infer
 
             if isinstance(batch_data, list):
                 data, target = batch_data
+                organ_pseudo = None
             else:
-                data, target, organ_pseudo = batch_data['image'], batch_data['label'], batch_data['organ_pseudo']
+                data, target = batch_data['image'], batch_data['label']
+                # organ_pseudo may not exist for LIDC binary segmentation
+                organ_pseudo = batch_data.get('organ_pseudo', None)
 
             data, target = data.cuda(args.rank), target.cuda(args.rank)
-            organ_pseudo = organ_pseudo.cuda(args.rank)
+            if organ_pseudo is not None:
+                organ_pseudo = organ_pseudo.cuda(args.rank)
 
 
             with autocast(enabled=args.amp):
@@ -322,13 +333,23 @@ def val_epoch(model, loader, val_shape_dict, epoch, loss_func, args, model_infer
                     logits = model(data)
                     
             loss = loss_func(logits, target)
+            # Handle tumor loss for different channel configurations
             tumor_logits = logits.detach()
-            tumor_loss = loss_func(torch.stack([tumor_logits[:,0],tumor_logits[:,2]], dim=1), target==2)
+            if args.num_classes == 2:
+                # Binary segmentation: compute loss for nodule class
+                tumor_loss = loss_func(logits, target)
+            else:
+                # 3-channel: compute loss for tumor class specifically
+                tumor_loss = loss_func(torch.stack([tumor_logits[:,0],tumor_logits[:,2]], dim=1), target==2)
 
             logits = torch.softmax(logits, 1).cpu().numpy()
             logits = np.argmax(logits, axis = 1).astype(np.uint8)
             target = target.cpu().numpy()[:,0,:,:,:]
-            organ_pseudo = organ_pseudo.cpu().numpy()[:,0,:,:,:]
+            if organ_pseudo is not None:
+                organ_pseudo = organ_pseudo.cpu().numpy()[:,0,:,:,:]
+            else:
+                # Create dummy organ_pseudo for 2-channel case
+                organ_pseudo = np.zeros_like(target)
 
             
             name = batch_data["image_meta_dict"]['filename_or_obj'][0].split('/')[-1]
