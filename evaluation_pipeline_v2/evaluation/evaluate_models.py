@@ -30,7 +30,7 @@ except ImportError:
     print("Warning: surface_distance library not found. NSD metrics may not work.")
 
 class ModelEvaluator:
-    def __init__(self, config_path="../configs/experiment_config.yaml"):
+    def __init__(self, config_path="../configs/experiment_config.yaml", log_to_file=True):
         """Initialize model evaluator with config"""
         # Get the evaluation_pipeline_v2 directory as base
         script_dir = Path(__file__).parent  # evaluation/
@@ -47,7 +47,43 @@ class ModelEvaluator:
         self.results_dir = self.base_dir / evaluation_results_dir_name
         os.makedirs(self.results_dir, exist_ok=True)
         
-        print(f"📁 Base directory: {self.base_dir}")
+        # Setup logging
+        self.log_to_file = log_to_file
+        self.log_file = None
+        self.log_file_handle = None
+        if self.log_to_file:
+            self._setup_logging()
+        
+        self._print(f"📁 Base directory: {self.base_dir}")
+    
+    def _setup_logging(self):
+        """Setup log file for this evaluation run"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_dir = self.results_dir / "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        self.log_file = log_dir / f"evaluation_log_{timestamp}.txt"
+        self.log_file_handle = open(self.log_file, 'w', buffering=1)
+        self._print(f"📝 Logging to: {self.log_file}")
+        self._print(f"Evaluation started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        self._print("="*80)
+    
+    def _print(self, *args, **kwargs):
+        """Print to both console and log file"""
+        # Print to console
+        print(*args, **kwargs)
+        # Write to log file if enabled
+        if self.log_file_handle:
+            # Convert args to string
+            output = ' '.join(str(arg) for arg in args)
+            self.log_file_handle.write(output + '\n')
+            self.log_file_handle.flush()
+    
+    def __del__(self):
+        """Cleanup log file handle"""
+        if self.log_file_handle:
+            self._print("="*80)
+            self._print(f"Evaluation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            self.log_file_handle.close()
         print(f"📁 Results directory: {self.results_dir}")
     
     def _resolve_path(self, maybe_rel_path: str) -> Path:
@@ -186,14 +222,14 @@ class ModelEvaluator:
                     # Copy to model.pt for compatibility
                     try:
                         shutil.copy2(epoch_checkpoint, model_pt)
-                        print(f"✅ Using checkpoint from epoch {checkpoint_epoch}: {cand_name}")
+                        self._print(f"✅ Using checkpoint from epoch {checkpoint_epoch}: {cand_name}")
                         if checkpoint_epoch < 200:
-                            print(f"⚠️  Warning: Training incomplete (epoch {checkpoint_epoch}/200) - results may not be optimal")
+                            self._print(f"⚠️  Warning: Training incomplete (epoch {checkpoint_epoch}/200) - results may not be optimal")
                         return cand_name
                     except Exception as e:
                         print(f"⚠️  Could not copy checkpoint: {e}")
             
-            print(f"⚠️  Checkpoint for epoch {checkpoint_epoch} not found, falling back to default")
+            self._print(f"⚠️  Checkpoint for epoch {checkpoint_epoch} not found, falling back to default")
         
         # Priority 2: Use best checkpoint if requested
         if use_best:
@@ -248,7 +284,7 @@ class ModelEvaluator:
             except Exception as e:
                 print(f"⚠️  Could not copy checkpoint: {e}")
         
-        print(f"❌ No checkpoint found in {model_dir}")
+        self._print(f"❌ No checkpoint found in {model_dir}")
         return None
     
     def _ensure_val_pseudo_labels(self, data_root: Path, organ_type: str, tumor_type: str) -> None:
@@ -611,21 +647,21 @@ class ModelEvaluator:
         
     def generate_paper_table(self, results, dataset="lidc"):
         """Generate evaluation table in paper format"""
-        print(f"\n{'='*80}")
+        self._print(f"\n{'='*80}")
         
         if dataset == "lidc":
-            print("Table 1: Downstream Lung Nodule Segmentation Dice (↑) and NSD (↑) on LIDC")
+            self._print("Table 1: Downstream Lung Nodule Segmentation Dice (↑) and NSD (↑) on LIDC")
         else:
-            print("Table 2: Downstream Cardiac Lesion Segmentation Dice (↑) on EMIDEC")
+            self._print("Table 2: Downstream Cardiac Lesion Segmentation Dice (↑) on EMIDEC")
             
-        print("P: real pathological cases. P'/N': synthetic pathological cases")
-        print("Bold numbers indicate the best performance in each setting")
-        print("="*80)
+        self._print("P: real pathological cases. P'/N': synthetic pathological cases")
+        self._print("Bold numbers indicate the best performance in each setting")
+        self._print("="*80)
         
         # Create formatted table
-        print(f"\n{'Methods':<30} {'Training':<15} {'nnU-Net (2021)':<30} {'SwinUNETR (2021)':<30}")
-        print(f"{'':30} {'Setting':<15} {'Dice (↑)  NSD (↑)':<30} {'Dice (↑)  NSD (↑)':<30}")
-        print("-"*105)
+        self._print(f"\n{'Methods':<30} {'Training':<15} {'nnU-Net (2021)':<30} {'SwinUNETR (2021)':<30}")
+        self._print(f"{'':30} {'Setting':<15} {'Dice (↑)  NSD (↑)':<30} {'Dice (↑)  NSD (↑)':<30}")
+        self._print("-"*105)
         
         # Group results by method
         for method in ['baseline', 'lefusion', 'lefusion_h', 'lefusion_h_diffmask']:
@@ -663,9 +699,9 @@ class ModelEvaluator:
             else:
                 swin_str = "-         -"
                 
-            print(f"{method_name:<30} {training_setting:<15} {nnunet_str:<30} {swin_str:<30}")
+            self._print(f"{method_name:<30} {training_setting:<15} {nnunet_str:<30} {swin_str:<30}")
             
-        print("-"*105)
+        self._print("-"*105)
         
     def evaluate_all(self, dataset="lidc", methods=None, model_types=None, seg_models=None, checkpoint_epoch=None, use_best_checkpoint=False):
         """Evaluate all specified configurations
@@ -687,13 +723,13 @@ class ModelEvaluator:
         if seg_models is None:
             seg_models = ["nnunet", "swinunetr"]
             
-        print(f"\n{'='*60}")
-        print(f"MODEL EVALUATION PIPELINE")
-        print(f"Dataset: {dataset}")
-        print(f"Methods: {methods}")
-        print(f"Model Types: {model_types}")
-        print(f"Segmentation Models: {seg_models}")
-        print(f"{'='*60}")
+        self._print(f"\n{'='*60}")
+        self._print(f"MODEL EVALUATION PIPELINE")
+        self._print(f"Dataset: {dataset}")
+        self._print(f"Methods: {methods}")
+        self._print(f"Model Types: {model_types}")
+        self._print(f"Segmentation Models: {seg_models}")
+        self._print(f"{'='*60}")
         
         all_results = []
         
@@ -704,9 +740,9 @@ class ModelEvaluator:
                     continue
                     
                 for seg_model in seg_models:
-                    print(f"\n{'='*50}")
-                    print(f"Evaluating: {method} + {model_type} + {seg_model}")
-                    print(f"{'='*50}")
+                    self._print(f"\n{'='*50}")
+                    self._print(f"Evaluating: {method} + {model_type} + {seg_model}")
+                    self._print(f"{'='*50}")
                     
                     # Locate checkpoint and skip if not finished
                     model_dir = self.base_dir / "trained_models" / dataset / method / model_type / seg_model
@@ -730,17 +766,17 @@ class ModelEvaluator:
                             ckpt = epoch_ckpts[-1]
                     # If specific epoch requested, let evaluate_model handle it
                     if checkpoint_epoch is not None:
-                        print(f"🎯 Evaluating at specified epoch {checkpoint_epoch}")
+                        self._print(f"🎯 Evaluating at specified epoch {checkpoint_epoch}")
                     elif use_best_checkpoint:
-                        print(f"🎯 Using best checkpoint if available")
+                        self._print(f"🎯 Using best checkpoint if available")
                     elif ckpt is not None:
                         last_epoch = self._get_checkpoint_epoch(ckpt)
                         max_epochs = int(self.config['training']['max_epochs'])
                         if last_epoch < max_epochs - 1:
-                            print(f"⚠️  Warning: Training incomplete ({method}+{model_type}+{seg_model} at epoch {last_epoch+1}/{max_epochs})")
-                            print(f"   Continuing with evaluation at epoch {last_epoch+1}...")
+                            self._print(f"⚠️  Warning: Training incomplete ({method}+{model_type}+{seg_model} at epoch {last_epoch+1}/{max_epochs})")
+                            self._print(f"   Continuing with evaluation at epoch {last_epoch+1}...")
                     else:
-                        print(f"⏭️  Skipping (no checkpoint): {method}+{model_type}+{seg_model}")
+                        self._print(f"⏭️  Skipping (no checkpoint): {method}+{model_type}+{seg_model}")
                         continue
 
                     stats = self.evaluate_model(dataset, method, model_type, seg_model, 
@@ -749,17 +785,17 @@ class ModelEvaluator:
                     
                     if stats:
                         all_results.append(stats)
-                        print(f"✅ DICE: {stats['dice_mean']:.2f} ± {stats['dice_std']:.2f}")
-                        print(f"✅ NSD: {stats['nsd_mean']:.2f} ± {stats['nsd_std']:.2f}")
+                        self._print(f"✅ DICE: {stats['dice_mean']:.2f} ± {stats['dice_std']:.2f}")
+                        self._print(f"✅ NSD: {stats['nsd_mean']:.2f} ± {stats['nsd_std']:.2f}")
                     else:
-                        print(f"❌ Evaluation failed")
+                        self._print(f"❌ Evaluation failed")
                         
         # Save results to CSV
         if all_results:
             df = pd.DataFrame(all_results)
             output_file = self.results_dir / f"{dataset}_evaluation_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             df.to_csv(output_file, index=False)
-            print(f"\n✅ Results saved to: {output_file}")
+            self._print(f"\n✅ Results saved to: {output_file}")
             
             # Generate paper-style table
             self.generate_paper_table(all_results, dataset)
