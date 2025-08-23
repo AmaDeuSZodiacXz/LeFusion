@@ -324,7 +324,7 @@ def main_worker(gpu, args):
         model = UNet(
                     spatial_dims=3,
                     in_channels=1,
-                    out_channels=3,
+                    out_channels=args.out_channels,
                     channels=(16, 32, 64, 128, 256),
                     strides=(2, 2, 2, 2),
                     num_res_units=2,
@@ -340,7 +340,7 @@ def main_worker(gpu, args):
             feature_size=48
 
         model = SwinUNETR_v2(in_channels=1,
-                          out_channels=3,
+                          out_channels=args.out_channels,
                           img_size=(96, 96, 96),
                           feature_size=feature_size,
                           patch_size=2,
@@ -361,7 +361,7 @@ def main_worker(gpu, args):
         model = DynUNet(
             spatial_dims=3,
             in_channels=1,
-            out_channels=3,
+            out_channels=args.out_channels,
             kernel_size=kernels,
             strides=strides,
             upsample_kernel_size=strides[1:],
