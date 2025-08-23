@@ -208,12 +208,14 @@ class ModelEvaluator:
         
         # Priority 1: Use specific epoch if requested
         if checkpoint_epoch is not None:
-            # Try different naming conventions
+            # Try different naming conventions (including zero-padded)
             epoch_candidates = [
+                f'epoch_{checkpoint_epoch:04d}.pt',  # epoch_0010.pt (zero-padded)
+                f'epoch_{checkpoint_epoch}.pt',       # epoch_10.pt
                 f'model_epoch_{checkpoint_epoch}.pt',
                 f'checkpoint_epoch_{checkpoint_epoch}.pt',
                 f'model_{checkpoint_epoch}.pt',
-                f'epoch_{checkpoint_epoch}.pt'
+                f'epoch_{checkpoint_epoch:03d}.pt',  # epoch_010.pt (3-digit padding)
             ]
             
             for cand_name in epoch_candidates:
@@ -355,7 +357,7 @@ class ModelEvaluator:
                         if 'output_block.conv.conv.weight' in key:
                             if val.shape[0] == 3:
                                 is_3channel = True
-                                print(f"⚠️  Detected 3-channel checkpoint (legacy). Using compatibility mode.")
+                                self._print(f"⚠️  Detected 3-channel checkpoint (legacy). Using compatibility mode.")
                             break
                     
                     if not is_3channel:
@@ -363,16 +365,16 @@ class ModelEvaluator:
                         cmd.extend(['--num_classes', '2'])
                     else:
                         # Old 3-channel model - use default (3 classes)
-                        print(f"ℹ️  Using 3-channel evaluation for legacy checkpoint")
+                        self._print(f"ℹ️  Using 3-channel evaluation for legacy checkpoint")
                 except Exception as e:
-                    print(f"⚠️  Could not determine checkpoint architecture: {e}")
+                    self._print(f"⚠️  Could not determine checkpoint architecture: {e}")
                     # Default to 2-channel for LIDC
                     cmd.extend(['--num_classes', '2'])
             else:
                 # No checkpoint yet, assume 2-channel for LIDC
                 cmd.extend(['--num_classes', '2'])
         # For LIDC 2-channel model: lesions are always in channel 1 (no longer need lesion_class_index)
-        print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
+        self._print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
         try:
             subprocess.run(cmd, cwd=step3_cwd, check=True)
