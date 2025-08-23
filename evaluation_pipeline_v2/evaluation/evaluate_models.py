@@ -305,6 +305,9 @@ class ModelEvaluator:
             '--use_test_set',
             '--disable_organ_override',
         ]
+        # For LIDC, add num_classes parameter for 2-channel binary segmentation
+        if dataset == 'lidc':
+            cmd.extend(['--num_classes', '2'])
         # For LIDC 2-channel model: lesions are always in channel 1 (no longer need lesion_class_index)
         print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
