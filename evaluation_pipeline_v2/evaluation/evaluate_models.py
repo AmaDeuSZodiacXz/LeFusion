@@ -305,9 +305,36 @@ class ModelEvaluator:
             '--use_test_set',
             '--disable_organ_override',
         ]
-        # For LIDC, add num_classes parameter for 2-channel binary segmentation
+        # For LIDC, check if checkpoint is 3-channel or 2-channel
         if dataset == 'lidc':
-            cmd.extend(['--num_classes', '2'])
+            # Check the checkpoint architecture
+            import torch
+            checkpoint_path = model_dir / 'model.pt'
+            if checkpoint_path.exists():
+                try:
+                    ckpt = torch.load(str(checkpoint_path), map_location='cpu')
+                    # Check output channels in the checkpoint
+                    is_3channel = False
+                    for key, val in ckpt.get('state_dict', {}).items():
+                        if 'output_block.conv.conv.weight' in key:
+                            if val.shape[0] == 3:
+                                is_3channel = True
+                                print(f"⚠️  Detected 3-channel checkpoint (legacy). Using compatibility mode.")
+                            break
+                    
+                    if not is_3channel:
+                        # New 2-channel model
+                        cmd.extend(['--num_classes', '2'])
+                    else:
+                        # Old 3-channel model - use default (3 classes)
+                        print(f"ℹ️  Using 3-channel evaluation for legacy checkpoint")
+                except Exception as e:
+                    print(f"⚠️  Could not determine checkpoint architecture: {e}")
+                    # Default to 2-channel for LIDC
+                    cmd.extend(['--num_classes', '2'])
+            else:
+                # No checkpoint yet, assume 2-channel for LIDC
+                cmd.extend(['--num_classes', '2'])
         # For LIDC 2-channel model: lesions are always in channel 1 (no longer need lesion_class_index)
         print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
         step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
