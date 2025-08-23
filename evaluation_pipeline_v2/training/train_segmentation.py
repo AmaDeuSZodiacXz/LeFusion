@@ -452,6 +452,8 @@ class SegmentationTrainer:
             tumor_type = "cardiac"
             organ_type = "heart"
         else:
+            # LIDC uses binary segmentation (2 channels)
+            cmd.extend(["--out_channels", "2", "--num_classes", "2"])
             tumor_type = "lung"  # Fixed: LIDC default should be lung
             organ_type = "lung"  # Fixed: LIDC default should be lung
         # Create missing pseudo organ masks by copying val labels (prevents FileNotFound during validation)
