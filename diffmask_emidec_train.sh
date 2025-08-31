@@ -6,13 +6,13 @@
 
 # Training parameters for EMIDEC
 dataset=emidec_mask
-root_dir=data/EMIDEC/Pathological/Image
+root_dir=data/EMIDEC/Pathological  # Root directory containing Image/ and Mask/
 test_txt_dir=data/EMIDEC/Pathological/test.txt
 
-# EMIDEC-specific dimensions (adjust based on actual data)
-# EMIDEC typically has different image dimensions than LIDC
-diffusion_img_size=128  # Adjust based on EMIDEC image size
-diffusion_depth_size=16  # Adjust based on EMIDEC depth
+# EMIDEC-specific dimensions (matching inference configuration)
+# Based on the EMIDEC inference settings in generate_synthetic_data.py
+diffusion_img_size=72   # EMIDEC uses 72x72 images
+diffusion_depth_size=10  # EMIDEC uses depth of 10
 out_dim=1
 unet_num_channels=2
 train_num_steps=80001
