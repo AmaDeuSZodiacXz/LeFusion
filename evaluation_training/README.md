@@ -1,0 +1,435 @@
+# LeFusion Evaluation Pipeline v2
+
+A comprehensive, modular pipeline for reproducing evaluation results from the LeFusion paper: **"Synthesizing Pathological Medical Images using Controllable Diffusion Models"**
+
+## 📋 Overview
+
+This pipeline reproduces the exact evaluation metrics from the LeFusion paper with integrated official evaluation metrics:
+- **Table 1**: Lung Nodule Segmentation (LIDC-IDRI) - DICE and NSD metrics
+- **Table 2**: Cardiac Lesion Segmentation (EMIDEC) - DICE metrics
+- **Official Metrics**: Integrated from [LeFusion repository](https://github.com/M3DV/LeFusion)
+
+## 🏗️ Architecture
+
+```
+evaluation_training/
+├── configs/
+│   └── experiment_config.yaml          # Central configuration
+├── evaluation_metrics/                 # Official metrics from LeFusion
+│   ├── get_Dice.py                    # Official DICE implementation
+│   ├── get_NSD.py                     # Official NSD implementation
+│   └── README.md                       # Metrics documentation
+├── synthetic_generation/
+│   └── generate_synthetic_data.py     # Synthetic data generation
+├── training/
+│   └── train_segmentation.py          # Model training (nnU-Net, SwinUNETR)
+├── evaluation/
+│   ├── evaluate_models.py             # Model evaluation with official metrics
+│   └── compare_metrics.py             # Metric comparison utility
+├── visualizations/
+│   └── generate_organized_visualizations.py
+├── run_complete_evaluation.py         # Master orchestrator
+└── test_official_metrics.py           # Metrics validation suite
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+```bash
+# Navigate to evaluation_training directory
+cd evaluation_training
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify GPU availability
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+```
+
+### Complete Pipeline Execution
+
+```bash
+# Run from evaluation_training directory
+cd evaluation_training
+
+# Full paper reproduction with all methods
+python run_complete_evaluation.py \
+    --dataset lidc \
+    --model-types pretrained \
+    --methods all
+
+# Quick test with single method
+python run_complete_evaluation.py --quick-test
+
+# Resume from checkpoint
+python run_complete_evaluation.py --resume
+```
+
+## 📊 Methods Overview
+
+| Method | Description | Synthetic Data Types | Performance Gain |
+|--------|-------------|---------------------|------------------|
+| **Baseline** | Real pathological only | None (P only) | Reference |
+| **LeFusion** | Base diffusion model | P+P' | +0.5% DICE |
+| **LeFusion-H** | Histogram-conditioned | P+P', P+N' | +2.3% DICE |
+| **LeFusion-H-DiffMask** | Enhanced with mask generation | P+N', P+N'', P+P'+N'' | **+5.2% DICE** |
+
+**Notation:**
+- P: Real pathological cases
+- P': Synthetic pathological from pathological
+- N': Synthetic pathological from normal
+- N'': Enhanced synthetic with DiffMask
+
+## 🔧 Detailed Usage
+
+### Phase 1: Synthetic Data Generation
+
+#### Generate All Methods (Recommended)
+
+```bash
+# Run from evaluation_training directory
+cd evaluation_training
+
+# All methods with pretrained models
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods all \
+    --resume
+
+# All methods with from-scratch models
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type from_scratch \
+    --methods all \
+    --resume
+
+# Both datasets (LIDC + EMIDEC)
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset all \
+    --model-type all \
+    --methods all \
+    --resume
+```
+
+#### Individual Method Generation
+
+**LeFusion Base:**
+```bash
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion
+```
+
+**LeFusion-H (Histogram):**
+```bash
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion_h
+```
+
+**LeFusion-H-DiffMask:**
+```bash
+python synthetic_generation/generate_synthetic_data.py \
+    --dataset lidc \
+    --model-type pretrained \
+    --methods lefusion_h_diffmask
+```
+
+#### Output Structure
+
+```
+evaluation_training/synthetic_data/
+├── lidc/
+│   ├── pretrained/
+│   │   ├── lefusion/
+│   │   │   └── P_P_prime/
+│   │   │       ├── imagesTr/       # Synthetic images
+│   │   │       └── labelsTr/       # Corresponding masks
+│   │   ├── lefusion_h/
+│   │   │   ├── P_P_prime/         # Pathological → Pathological
+│   │   │   └── P_N_prime/         # Normal → Pathological
+│   │   └── lefusion_h_diffmask/
+│   │       ├── P_N_prime/         # Base enhancement
+│   │       ├── P_N_double_prime/  # Double enhancement
+│   │       └── P_P_prime_N_double_prime/  # Combined
+│   └── from_scratch/
+│       └── [same structure]
+└── emidec/
+    └── [same structure]
+```
+
+### Phase 2: Training Segmentation Models
+
+#### Train All Models
+
+```bash
+# All methods with both architectures
+python training/train_segmentation.py \
+    --dataset lidc \
+    --methods all \
+    --model-types pretrained from_scratch \
+    --seg-models nnunet swinunetr
+
+# Specific configuration
+python training/train_segmentation.py \
+    --dataset lidc \
+    --methods lefusion_h_diffmask \
+    --model-types pretrained \
+    --seg-models nnunet
+```
+
+#### Training Parameters
+- **Epochs**: 200 (configurable)
+- **Batch Size**: 1 (for 3D volumes)
+- **Learning Rate**: 0.0004
+- **Optimizer**: AdamW
+- **Validation**: Every 200 iterations
+
+### Phase 3: Evaluation with Official Metrics
+
+#### Evaluate Models
+
+```bash
+# Evaluate all models and compare with paper
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --methods all \
+    --model-types all \
+    --seg-models nnunet swinunetr \
+    --compare-paper
+
+# Specific evaluation
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --method lefusion_h_diffmask \
+    --model-type pretrained \
+    --seg-model nnunet \
+    --use-best-checkpoint
+```
+
+#### Metric Validation
+
+```bash
+# Test official metrics integration
+python test_official_metrics.py
+
+# Compare metric implementations
+python evaluation/compare_metrics.py --tolerance 1.0
+```
+
+## 📈 Expected Results
+
+### LIDC-IDRI Dataset (Lung Nodules)
+
+| Method | nnU-Net |  | SwinUNETR |  |
+|--------|---------|-----|-----------|-----|
+|        | DICE↑ | NSD↑ | DICE↑ | NSD↑ |
+| Baseline | 78.26 | 88.90 | 78.38 | 88.67 |
+| LeFusion | 78.77 | 89.25 | 78.43 | 88.54 |
+| LeFusion-H | 80.62 | 90.90 | 80.95 | 90.98 |
+| **LeFusion-H-DiffMask** | **83.44** | **93.35** | **83.13** | **93.20** |
+
+### EMIDEC Dataset (Cardiac Lesions)
+
+| Method | nnU-Net |  | SwinUNETR |  |
+|--------|---------|-----|-----------|-----|
+|        | MI↑ | PMO↑ | MI↑ | PMO↑ |
+| Baseline | 68.61 | 36.32 | 57.79 | 35.76 |
+| LeFusion | 69.88 | 34.79 | 57.85 | 35.63 |
+| LeFusion-H | 69.95 | 38.01 | 59.61 | 37.99 |
+| **LeFusion-H-DiffMask** | **71.28** | **43.41** | **59.30** | **42.49** |
+
+## 🎯 Model Types
+
+### Pretrained Models
+- Faster convergence (minutes to hours)
+- Stable performance
+- Recommended for reproduction
+
+**Required files (relative to project root):**
+```
+LeFusion/LeFusion_Model/LIDC/lidc.pt
+LeFusion/LeFusion_Model/EMIDEC/emidec.pt
+DiffMask/DiffMask_Model/diffmask.pt
+```
+
+### From-Scratch Models
+- Trained from random initialization
+- Potentially better performance
+- Longer training time (hours to days)
+
+**Required files (relative to project root):**
+```
+LeFusion/LeFusion_Model/LIDC/model-50.pt
+LeFusion/LeFusion_Model/EMIDEC/model-50.pt
+DiffMask/DiffMask_Model/model-80.pt
+```
+
+## 🔄 Resume Capability
+
+All phases support checkpoint-based resumption within evaluation_training:
+
+```bash
+# Synthetic generation checkpoint
+evaluation_training/synthetic_data/[dataset]/[model_type]/generation_checkpoint.json
+
+# Training automatically detects existing models
+evaluation_training/trained_models/[dataset]/[method]/[model_type]/[seg_model]/
+
+# Evaluation skips completed evaluations
+evaluation_training/evaluation_results/[timestamp]/
+```
+
+## 📊 Evaluation Metrics
+
+### DICE Coefficient
+- Measures volumetric overlap
+- Range: 0-100% (higher is better)
+- Official implementation from LeFusion repository
+
+### Normalized Surface Distance (NSD)
+- Measures surface alignment at 1mm tolerance
+- Range: 0-100% (higher is better)
+- Uses MONAI's compute_surface_dice
+
+## 🛠️ Configuration
+
+Edit `configs/experiment_config.yaml`:
+
+```yaml
+datasets:
+  lidc:
+    normal_dir: "../data/LIDC/Normal/Image"
+    pathological_dir: "../data/LIDC/Pathological"
+    real_data_dir: "datasets/LIDC_real"  # Inside evaluation_training
+    
+evaluation:
+  nsd_tolerance: 1.0  # mm (paper default)
+  
+training:
+  max_epochs: 200
+  batch_size: 1
+  learning_rate: 0.0004
+```
+
+## 📦 Data Preparation
+
+### Real Data Splits
+
+Before training, prepare split files:
+
+```bash
+# Auto-generate splits for LIDC
+python utils/create_data_splits.py --dataset lidc
+
+# Auto-generate splits for EMIDEC
+python utils/create_data_splits.py --dataset emidec
+
+# Verify structure (data will be in evaluation_training)
+datasets/LIDC_real/
+├── imagesTr/
+├── labelsTr/
+├── real_liver_train_0.txt
+└── real_liver_val_0.txt
+```
+
+## 🐛 Troubleshooting
+
+### GPU Memory Issues
+```yaml
+# Reduce batch size in config
+training:
+  batch_size: 1
+```
+
+### Missing Dependencies
+```bash
+pip install torch monai nibabel scipy pandas matplotlib
+```
+
+### Validation Failed
+```bash
+# Test metrics independently
+python test_official_metrics.py
+
+# Check specific model
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --method baseline \
+    --dry-run
+```
+
+## 📈 Visualization
+
+Generate comprehensive visualizations:
+
+```bash
+# Run from evaluation_training directory
+cd evaluation_training
+
+# Generate for all methods
+python generate_organized_visualizations.py --model-type both
+
+# Specific model type
+python generate_organized_visualizations.py --model-type pretrained
+
+# Output will be in evaluation_training/visualizations/
+```
+
+## 🚢 Model Upload to Hugging Face
+
+Upload trained models to Hugging Face Hub:
+
+```bash
+# Run from project root (not evaluation_training)
+cd ..
+
+# Upload all models
+bash upload_models.sh your-username/lefusion-models
+
+# Include trained segmentation models from evaluation_training
+bash upload_models.sh your-username/lefusion-models --include-trained
+
+# Test without uploading
+bash upload_models.sh your-username/lefusion-models --dry-run
+```
+
+## 📝 Citation
+
+If you use this pipeline, please cite:
+
+```bibtex
+@article{lefusion2024,
+  title={LeFusion: Synthesizing Pathological Medical Images using Controllable Diffusion Models},
+  author={...},
+  year={2024}
+}
+```
+
+## 🔗 Resources
+
+- [Original LeFusion Repository](https://github.com/M3DV/LeFusion)
+- [Paper](https://arxiv.org/...)
+- [Hugging Face Models](https://huggingface.co/...)
+
+## 📊 Key Features
+
+- ✅ **Official Metrics**: Integrated from original repository
+- ✅ **Modular Design**: Run phases independently
+- ✅ **Resume Support**: Checkpoint-based continuation
+- ✅ **Multi-GPU**: Automatic device selection
+- ✅ **Validation**: Comprehensive test suite
+- ✅ **Visualization**: Generate paper-quality figures
+- ✅ **Model Upload**: Direct to Hugging Face Hub
+
+---
+
+**Version**: 2.0.0  
+**Last Updated**: December 2024  
+**Status**: Production Ready
+
+For issues or questions, please check the configuration paths and ensure all model weights are in place.

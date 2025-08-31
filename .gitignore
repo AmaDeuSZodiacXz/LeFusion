@@ -1,3 +1,29 @@
 *.nii.gz
 *.pt
 *.tar
+*.png
+*.pyc
+__pycache__/
+.DS_Store
+
+# Evaluation pipeline generated files
+evaluation_training/synthetic_data/
+evaluation_training/outputs/
+evaluation_training/evaluation_results/
+evaluation_training/trained_models/
+evaluation_training/logs/
+evaluation_training/visualizations/
+
+# Utility training resources - keep split files but ignore temp files
+utility_training_resources/datasets/*/imagesTr/
+utility_training_resources/datasets/*/imagesTs/
+utility_training_resources/datasets/*/labelsTr/
+utility_training_resources/datasets/*/labelsTs/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*~
+.*.swp
