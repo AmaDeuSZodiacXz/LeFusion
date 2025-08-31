@@ -27,7 +27,7 @@ sys.path.append(str(Path(__file__).parent.parent))  # Add evaluation_training to
 from evaluation_metrics import dice as official_dice, compute_dice as official_compute_dice, nsd as official_nsd
 
 # Add path for surface_distance library (fallback)
-sys.path.append('../../utility_training_resources/DiffTumor/STEP3.SegmentationModel/external/surface-distance')
+sys.path.append(str(Path(__file__).parent.parent.parent / 'utility_training_resources/DiffTumor/STEP3.SegmentationModel/external/surface-distance'))
 try:
     from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
     SURFACE_DISTANCE_AVAILABLE = True
@@ -333,7 +333,7 @@ class ModelEvaluator:
         organ_type = 'lung' if dataset == 'lidc' else 'heart'
         self._ensure_val_pseudo_labels(data_root, organ_type=organ_type, tumor_type=tumor_type)
         # Build command
-        validation_py = (self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel' / 'validation.py').resolve()
+        validation_py = (self.base_dir.parent / 'DiffTumor_full' / 'STEP3.SegmentationModel' / 'validation.py').resolve()
         cmd = [
             sys.executable, str(validation_py),
             '--data_root', str(data_root),
@@ -381,7 +381,7 @@ class ModelEvaluator:
                 cmd.extend(['--num_classes', '2'])
         # For LIDC 2-channel model: lesions are always in channel 1 (no longer need lesion_class_index)
         self._print(f"🧪 Generating predictions via validation.py: {' '.join(cmd[:6])} ...")
-        step3_cwd = str((self.base_dir.parent / 'evaluation_pipeline' / 'DiffTumor' / 'STEP3.SegmentationModel').resolve())
+        step3_cwd = str((self.base_dir.parent / 'DiffTumor_full' / 'STEP3.SegmentationModel').resolve())
         try:
             subprocess.run(cmd, cwd=step3_cwd, check=True)
         except subprocess.CalledProcessError as e:
