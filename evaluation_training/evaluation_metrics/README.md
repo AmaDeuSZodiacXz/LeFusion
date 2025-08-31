@@ -20,6 +20,11 @@ This directory contains the official evaluation metrics implementation from the 
 ### Basic Usage
 
 ```python
+# When running from evaluation_training directory
+import sys
+from pathlib import Path
+sys.path.append(str(Path.cwd()))
+
 from evaluation_metrics import dice, nsd
 
 # Calculate Dice coefficient
@@ -54,6 +59,9 @@ result = evaluator.evaluate_single_case(pred_path, gt_path, use_file_metrics=Tru
 To verify consistency between different metric implementations:
 
 ```bash
+# Run from evaluation_training directory
+cd evaluation_training
+
 # Compare with synthetic test cases
 python evaluation/compare_metrics.py --tolerance 1.0
 
@@ -91,6 +99,10 @@ This version has been updated to:
 Run the test suite to verify the metrics work correctly:
 
 ```bash
+# Run from evaluation_training directory
+cd evaluation_training
+
+# Test the official metrics
 python test_official_metrics.py
 ```
 

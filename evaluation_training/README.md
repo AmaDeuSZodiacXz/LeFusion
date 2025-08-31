@@ -1,6 +1,8 @@
-# LeFusion Evaluation Pipeline v2
+# LeFusion Evaluation Training Pipeline
 
 A comprehensive, modular pipeline for reproducing evaluation results from the LeFusion paper: **"Synthesizing Pathological Medical Images using Controllable Diffusion Models"**
+
+> **Note**: This pipeline was restructured from `evaluation_pipeline_v2` to `evaluation_training` for better clarity and organization.
 
 ## 📋 Overview
 
@@ -12,24 +14,38 @@ This pipeline reproduces the exact evaluation metrics from the LeFusion paper wi
 ## 🏗️ Architecture
 
 ```
-evaluation_training/
-├── configs/
-│   └── experiment_config.yaml          # Central configuration
-├── evaluation_metrics/                 # Official metrics from LeFusion
-│   ├── get_Dice.py                    # Official DICE implementation
-│   ├── get_NSD.py                     # Official NSD implementation
-│   └── README.md                       # Metrics documentation
-├── synthetic_generation/
-│   └── generate_synthetic_data.py     # Synthetic data generation
-├── training/
-│   └── train_segmentation.py          # Model training (nnU-Net, SwinUNETR)
-├── evaluation/
-│   ├── evaluate_models.py             # Model evaluation with official metrics
-│   └── compare_metrics.py             # Metric comparison utility
-├── visualizations/
-│   └── generate_organized_visualizations.py
-├── run_complete_evaluation.py         # Master orchestrator
-└── test_official_metrics.py           # Metrics validation suite
+LeFusion/                               # Project root
+├── evaluation_training/                # Main evaluation pipeline (this directory)
+│   ├── configs/
+│   │   └── experiment_config.yaml     # Central configuration
+│   ├── evaluation_metrics/            # Official metrics from LeFusion
+│   │   ├── get_Dice.py               # Official DICE implementation
+│   │   ├── get_NSD.py                # Official NSD implementation
+│   │   └── README.md                  # Metrics documentation
+│   ├── synthetic_generation/
+│   │   └── generate_synthetic_data.py # Synthetic data generation
+│   ├── training/
+│   │   └── train_segmentation.py     # Model training (nnU-Net, SwinUNETR)
+│   ├── evaluation/
+│   │   ├── evaluate_models.py        # Model evaluation with official metrics
+│   │   └── compare_metrics.py        # Metric comparison utility
+│   ├── utils/
+│   │   └── test_paths.py             # Path verification utility
+│   ├── run_complete_evaluation.py    # Master orchestrator
+│   └── test_official_metrics.py      # Metrics validation suite
+├── utility_training_resources/        # Shared resources
+│   ├── datasets/
+│   │   ├── LIDC_real/                # LIDC dataset splits
+│   │   └── EMIDEC_real/              # EMIDEC dataset splits
+│   └── DiffTumor/
+│       └── STEP3.SegmentationModel/  # Segmentation models
+├── LeFusion/                          # LeFusion models
+│   └── LeFusion_Model/
+├── DiffMask/                          # DiffMask models
+│   └── DiffMask_Model/
+└── data/                              # Raw datasets
+    ├── LIDC/
+    └── EMIDEC/
 ```
 
 ## 🚀 Quick Start
@@ -37,7 +53,7 @@ evaluation_training/
 ### Prerequisites
 
 ```bash
-# Navigate to evaluation_training directory
+# Navigate to evaluation_training directory (from project root)
 cd evaluation_training
 
 # Install dependencies
@@ -45,6 +61,9 @@ pip install -r requirements.txt
 
 # Verify GPU availability
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+
+# Verify paths are correct
+python test_paths.py
 ```
 
 ### Complete Pipeline Execution
@@ -88,7 +107,8 @@ python run_complete_evaluation.py --resume
 #### Generate All Methods (Recommended)
 
 ```bash
-# Run from evaluation_training directory
+# Make sure you're in evaluation_training directory
+# If at project root:
 cd evaluation_training
 
 # All methods with pretrained models
@@ -305,7 +325,12 @@ datasets:
   lidc:
     normal_dir: "../data/LIDC/Normal/Image"
     pathological_dir: "../data/LIDC/Pathological"
-    real_data_dir: "datasets/LIDC_real"  # Inside evaluation_training
+    real_data_dir: "../utility_training_resources/datasets/LIDC_real"
+    
+  emidec:
+    normal_dir: "../data/EMIDEC/Normal"
+    pathological_dir: "../data/EMIDEC/Pathological"
+    real_data_dir: "../utility_training_resources/datasets/EMIDEC_real"
     
 evaluation:
   nsd_tolerance: 1.0  # mm (paper default)
@@ -329,12 +354,13 @@ python utils/create_data_splits.py --dataset lidc
 # Auto-generate splits for EMIDEC
 python utils/create_data_splits.py --dataset emidec
 
-# Verify structure (data will be in evaluation_training)
-datasets/LIDC_real/
+# Verify structure (data will be in utility_training_resources)
+../utility_training_resources/datasets/LIDC_real/
 ├── imagesTr/
 ├── labelsTr/
-├── real_liver_train_0.txt
-└── real_liver_val_0.txt
+├── real_lung_train_0.txt
+├── real_lung_val_0.txt
+└── test.txt
 ```
 
 ## 🐛 Troubleshooting
@@ -425,11 +451,3 @@ If you use this pipeline, please cite:
 - ✅ **Validation**: Comprehensive test suite
 - ✅ **Visualization**: Generate paper-quality figures
 - ✅ **Model Upload**: Direct to Hugging Face Hub
-
----
-
-**Version**: 2.0.0  
-**Last Updated**: December 2024  
-**Status**: Production Ready
-
-For issues or questions, please check the configuration paths and ensure all model weights are in place.
