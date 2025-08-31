@@ -44,6 +44,8 @@ model_weights:
       emidec: "../LeFusion/LeFusion_Model/EMIDEC/emidec.pt"
     diffmask:
       lidc: "../DiffMask/DiffMask_Model/diffmask.pt"
+      # Note: No pretrained DiffMask for EMIDEC (dimension mismatch)
+      # emidec: Not available - use from_scratch
       
   from_scratch:
     lefusion:
@@ -51,6 +53,7 @@ model_weights:
       emidec: "../LeFusion/LeFusion_Model/EMIDEC/model-50.pt"
     diffmask:
       lidc: "../DiffMask/DiffMask_Model/model-80.pt"
+      emidec: "../DiffMask/DiffMask_Model_EMIDEC/model-80.pt"  # Train using diffmask_emidec_train.sh
 
 # Segmentation models from the paper
 segmentation_models:

@@ -179,6 +179,20 @@ def main(conf: DictConfig):
                     label = tio.LabelMap(tensor=label, channels_last=False, affine=restore_affine)
                     label.save(os.path.join(conf.target_label_path, label_fold, mask_name))
             elif data_type == 'emidec':
+                # Check if outputs already exist (for resume capability)
+                all_exist = True
+                output_paths = []
+                for i in range(batch_size):
+                    gt_name = batch['GT_name'][i]
+                    img_path = os.path.join(conf.target_img_path, gt_name)
+                    lbl_path = os.path.join(conf.target_label_path, gt_name)
+                    output_paths.append((img_path, lbl_path))
+                    if not (os.path.exists(img_path) and os.path.exists(lbl_path)):
+                        all_exist = False
+                if all_exist:
+                    print(f"Skip idx {idx+1}, type {type+1} - outputs already exist")
+                    continue
+                
                 output = output.permute(0, 1, 3, 4, 2).cpu()
                 os.makedirs(conf.target_img_path, exist_ok=True)
                 os.makedirs(conf.target_label_path, exist_ok=True)
