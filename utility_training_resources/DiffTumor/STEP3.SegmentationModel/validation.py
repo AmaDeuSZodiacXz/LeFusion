@@ -1,11 +1,18 @@
 import os, time, csv
+import sys
+from pathlib import Path
+
+# Add surface_distance to path
+current_dir = Path(__file__).parent
+sys.path.insert(0, str(current_dir / 'external' / 'surface-distance'))
+
 import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix
 from scipy import ndimage
 from scipy.ndimage import label
 from functools import partial
-from surface_distance import compute_surface_distances,compute_surface_dice_at_tolerance
+from surface_distance.metrics import compute_surface_distances, compute_surface_dice_at_tolerance
 import monai
 from monai.inferers import sliding_window_inference
 from monai.data import load_decathlon_datalist
