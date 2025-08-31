@@ -1,0 +1,3 @@
+name: emidec_mask
+root_dir: data/EMIDEC/Pathological
+test_txt_dir: data/EMIDEC/Pathological/test.txt

@@ -1,5 +1,5 @@
-name: EMIDEC_MASK
-root_dir: ???
-test_txt_dir: ???
+name: emidec_mask
+root_dir: data/EMIDEC/Pathological
+test_txt_dir: data/EMIDEC/Pathological/test.txt
 image_channels: 2  # EMIDEC uses 2 channels
 augmentation: True

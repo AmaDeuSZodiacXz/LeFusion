@@ -9,7 +9,8 @@ def get_inference_dataloader(dataset_root_dir, test_txt_path, batch_size=1, drop
 
 def get_train_dataset(cfg):
     # Select appropriate dataset class based on dataset name
-    if cfg.dataset.name == 'emidec_mask':
+    dataset_name = cfg.dataset.name.lower()
+    if 'emidec' in dataset_name:
         train_dataset = EMIDECMASKDataset(root_dir=cfg.dataset.root_dir, text_txt_path=cfg.dataset.test_txt_dir)
     else:
         train_dataset = LIDCMASKDataset(root_dir=cfg.dataset.root_dir, text_txt_path=cfg.dataset.test_txt_dir)

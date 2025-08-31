@@ -11,9 +11,9 @@ from mpl_toolkits.mplot3d import Axes3D
 from skimage import measure
 
 # EMIDEC specific preprocessing - dimensions: 72x72x10
+# Note: EMIDEC MRI data has different intensity ranges than CT
 PREPROCESSING_TRANSFORMS = tio.Compose([
-    tio.Clamp(out_min=-1000, out_max=400),
-    tio.RescaleIntensity(in_min_max=(-1000, 400), out_min_max=(-1.0, 1.0)),
+    tio.RescaleIntensity(out_min_max=(-1.0, 1.0)),  # Normalize to [-1, 1] without clamping first
     tio.CropOrPad(target_shape=(10, 72, 72))  # EMIDEC dimensions (depth, height, width)
 ])
 
