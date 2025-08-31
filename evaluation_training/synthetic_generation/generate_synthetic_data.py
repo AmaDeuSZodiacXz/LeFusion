@@ -390,13 +390,30 @@ class SyntheticDataGenerator:
         print(f"   Output: {output_dir}")
         
         # Get DiffMask model path
+        # Special handling for EMIDEC pretrained (doesn't exist due to dimension mismatch)
+        if model_type == "pretrained" and dataset == "emidec":
+            print(f"⚠️  Skipping DiffMask enhancement for EMIDEC pretrained")
+            print(f"   No pretrained DiffMask model available for EMIDEC (dimension mismatch)")
+            print(f"   LIDC and EMIDEC have different dimensions, requiring separate DiffMask models")
+            print(f"   To use DiffMask with EMIDEC, please use from_scratch model")
+            return False
+            
         if model_type == "pretrained":
-            model_path = self.config['model_weights']['pretrained']['diffmask'][dataset]
+            model_path = self.config['model_weights']['pretrained']['diffmask'].get(dataset)
+            if not model_path:
+                print(f"❌ No pretrained DiffMask configured for {dataset}")
+                return False
         else:
-            model_path = self.config['model_weights']['from_scratch']['diffmask'][dataset]
+            model_path = self.config['model_weights']['from_scratch']['diffmask'].get(dataset)
+            if not model_path:
+                print(f"❌ No from_scratch DiffMask configured for {dataset}")
+                return False
+            
         model_path = self._resolve_path(model_path)
         if not Path(model_path).exists():
             print(f"❌ Model not found: {model_path}")
+            if dataset == "emidec":
+                print(f"   Please train DiffMask for EMIDEC first using: bash diffmask_emidec_train.sh")
             return False
         
         src_img = Path(input_dir) / 'imagesTr'
@@ -499,24 +516,31 @@ class SyntheticDataGenerator:
                 success = success_pp and success_pn
                 
             elif method == "lefusion_h_diffmask":
-                # First generate LeFusion-H data
-                temp_dir = self.get_output_path(dataset, "lefusion_h_temp", model_type, "temp")
-                success_h = self.generate_lefusion_h(dataset, model_type, temp_dir)
-                
-                if success_h:
-                    # Then enhance with DiffMask for different combinations
-                    output_dir_pn = self.get_output_path(dataset, method, model_type, "P_N_prime")
-                    success_pn = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_pn)
-                    
-                    output_dir_pn2 = self.get_output_path(dataset, method, model_type, "P_N_double_prime")
-                    success_pn2 = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_pn2)
-                    
-                    output_dir_all = self.get_output_path(dataset, method, model_type, "P_P_prime_N_double_prime")
-                    success_all = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_all)
-                    
-                    success = success_pn and success_pn2 and success_all
-                else:
+                # Special handling for EMIDEC pretrained - skip DiffMask enhancement
+                if dataset == "emidec" and model_type == "pretrained":
+                    print(f"⚠️  Skipping {method} for EMIDEC pretrained")
+                    print(f"   No pretrained DiffMask model available for EMIDEC")
+                    print(f"   Use from_scratch model or train DiffMask for EMIDEC first")
                     success = False
+                else:
+                    # First generate LeFusion-H data
+                    temp_dir = self.get_output_path(dataset, "lefusion_h_temp", model_type, "temp")
+                    success_h = self.generate_lefusion_h(dataset, model_type, temp_dir)
+                    
+                    if success_h:
+                        # Then enhance with DiffMask for different combinations
+                        output_dir_pn = self.get_output_path(dataset, method, model_type, "P_N_prime")
+                        success_pn = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_pn)
+                        
+                        output_dir_pn2 = self.get_output_path(dataset, method, model_type, "P_N_double_prime")
+                        success_pn2 = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_pn2)
+                        
+                        output_dir_all = self.get_output_path(dataset, method, model_type, "P_P_prime_N_double_prime")
+                        success_all = self.generate_diffmask_enhancement(dataset, model_type, temp_dir, output_dir_all)
+                        
+                        success = success_pn and success_pn2 and success_all
+                    else:
+                        success = False
                     
             else:
                 print(f"❌ Unknown method: {method}")
