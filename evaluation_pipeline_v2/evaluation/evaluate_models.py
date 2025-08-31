@@ -22,12 +22,18 @@ import subprocess
 import shutil
 import csv
 
-# Add path for surface_distance library
+# Import official evaluation metrics
+sys.path.append(str(Path(__file__).parent.parent))  # Add evaluation_pipeline_v2 to path
+from evaluation_metrics import dice as official_dice, compute_dice as official_compute_dice, nsd as official_nsd
+
+# Add path for surface_distance library (fallback)
 sys.path.append('../../evaluation_pipeline/DiffTumor/STEP3.SegmentationModel/external/surface-distance')
 try:
     from surface_distance import compute_surface_distances, compute_surface_dice_at_tolerance
+    SURFACE_DISTANCE_AVAILABLE = True
 except ImportError:
-    print("Warning: surface_distance library not found. NSD metrics may not work.")
+    SURFACE_DISTANCE_AVAILABLE = False
+    print("Warning: surface_distance library not found. Using official metrics only.")
 
 class ModelEvaluator:
     def __init__(self, config_path="../configs/experiment_config.yaml", log_to_file=True):
@@ -423,46 +429,100 @@ class ModelEvaluator:
             'num_cases': len(tumor_dice_vals),
         }
         
-    def calculate_dice(self, pred, gt):
-        """Calculate DICE coefficient"""
-        pred = pred.astype(bool)
-        gt = gt.astype(bool)
-        
-        if pred.sum() == 0 and gt.sum() == 0:
-            return 1.0
-        elif pred.sum() == 0 or gt.sum() == 0:
-            return 0.0
+    def calculate_dice(self, pred, gt, use_official=True):
+        """Calculate DICE coefficient using official implementation"""
+        if use_official:
+            # Convert to torch tensors as required by official metric
+            pred_tensor = torch.tensor(pred).long()
+            gt_tensor = torch.tensor(gt).long()
             
-        intersection = np.logical_and(pred, gt).sum()
-        dice = 2.0 * intersection / (pred.sum() + gt.sum())
-        return dice * 100  # Return as percentage
-        
-    def calculate_nsd(self, pred, gt, spacing_mm=(1, 1, 1), tolerance=2):
-        """Calculate Normalized Surface Distance (NSD) at tolerance"""
-        pred = pred.astype(bool)
-        gt = gt.astype(bool)
-        
-        # Handle edge cases
-        if pred.sum() == 0 and gt.sum() == 0:
-            return 100.0
-        elif pred.sum() == 0 or gt.sum() == 0:
-            return 0.0
+            # Use official compute_dice function
+            dice_score = official_compute_dice(pred_tensor, gt_tensor)
+            return dice_score * 100  # Return as percentage
+        else:
+            # Fallback to original implementation
+            pred = pred.astype(bool)
+            gt = gt.astype(bool)
             
-        try:
-            surface_distances = compute_surface_distances(gt, pred, spacing_mm=spacing_mm)
-            nsd = compute_surface_dice_at_tolerance(surface_distances, tolerance)
-            return nsd * 100  # Return as percentage
-        except Exception as e:
-            print(f"Warning: NSD calculation failed: {e}")
-            return 0.0
+            if pred.sum() == 0 and gt.sum() == 0:
+                return 1.0
+            elif pred.sum() == 0 or gt.sum() == 0:
+                return 0.0
+                
+            intersection = np.logical_and(pred, gt).sum()
+            dice = 2.0 * intersection / (pred.sum() + gt.sum())
+            return dice * 100  # Return as percentage
+        
+    def calculate_nsd(self, pred, gt, spacing_mm=(1, 1, 1), tolerance=1.0, use_official=True):
+        """Calculate Normalized Surface Distance (NSD) at tolerance using official implementation"""
+        if use_official:
+            try:
+                # Convert both to torch tensors with proper dimensions
+                pred_tensor = torch.tensor(pred).int()
+                pred_tensor = pred_tensor.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+                
+                gt_tensor = torch.tensor(gt).int()
+                gt_tensor = gt_tensor.unsqueeze(0).unsqueeze(0)  # Add batch and channel dimensions
+                
+                # Use official nsd function via MONAI
+                from monai.metrics import compute_surface_dice
+                surface_dice = compute_surface_dice(
+                    y_pred=pred_tensor,
+                    y=gt_tensor,
+                    spacing=spacing_mm,
+                    class_thresholds=[tolerance]  # Use tolerance as list
+                )
+                
+                # Extract the scalar value
+                if isinstance(surface_dice, torch.Tensor):
+                    nsd_value = surface_dice.item()
+                else:
+                    nsd_value = float(surface_dice)
+                
+                return nsd_value * 100  # Return as percentage
+            except Exception as e:
+                print(f"Warning: Official NSD calculation failed: {e}. Falling back to surface_distance.")
+                # Fall back to surface_distance if official fails
+                if SURFACE_DISTANCE_AVAILABLE:
+                    return self.calculate_nsd(pred, gt, spacing_mm, tolerance, use_official=False)
+                else:
+                    return 0.0
+        else:
+            # Use surface_distance library (fallback)
+            pred = pred.astype(bool)
+            gt = gt.astype(bool)
+            
+            # Handle edge cases
+            if pred.sum() == 0 and gt.sum() == 0:
+                return 100.0
+            elif pred.sum() == 0 or gt.sum() == 0:
+                return 0.0
+                
+            try:
+                surface_distances = compute_surface_distances(gt, pred, spacing_mm=spacing_mm)
+                nsd = compute_surface_dice_at_tolerance(surface_distances, tolerance)
+                return nsd * 100  # Return as percentage
+            except Exception as e:
+                print(f"Warning: NSD calculation failed: {e}")
+                return 0.0
             
     def load_nifti(self, path):
         """Load NIfTI file"""
         nii = nib.load(path)
         return nii.get_fdata(), nii.header.get_zooms()[:3]
         
-    def evaluate_single_case(self, pred_path, gt_path):
-        """Evaluate a single prediction against ground truth"""
+    def evaluate_single_case(self, pred_path, gt_path, use_file_metrics=False):
+        """Evaluate a single prediction against ground truth
+        
+        Args:
+            pred_path: Path to prediction file
+            gt_path: Path to ground truth file
+            use_file_metrics: If True, use official file-based metrics directly
+        """
+        if use_file_metrics:
+            # Use official file-based metrics
+            return self.evaluate_single_case_official(pred_path, gt_path)
+        
         # Load predictions and ground truth
         pred, _ = self.load_nifti(pred_path)
         gt, gt_spacing = self.load_nifti(gt_path)
@@ -488,14 +548,45 @@ class ModelEvaluator:
         # Skip if GT has no tumor voxels
         if gt.sum() == 0:
             return None
-        # Calculate metrics
-        dice = self.calculate_dice(pred, gt)
-        nsd = self.calculate_nsd(pred, gt, spacing_mm=gt_spacing, tolerance=self.config['evaluation']['nsd_tolerance'])
+        # Calculate metrics using official implementations
+        dice = self.calculate_dice(pred, gt, use_official=True)
+        
+        # Use tolerance from config, default to 1.0 (matching paper)
+        tolerance = self.config.get('evaluation', {}).get('nsd_tolerance', 1.0)
+        nsd = self.calculate_nsd(pred, gt, spacing_mm=gt_spacing, tolerance=tolerance, use_official=True)
         
         return {
             'dice': dice,
             'nsd': nsd
         }
+    
+    def evaluate_single_case_official(self, pred_path, gt_path):
+        """Evaluate using official file-based metrics directly"""
+        try:
+            # Calculate DICE using official file-based function
+            dice_score = official_dice(pred_path, gt_path)
+            dice_percentage = dice_score * 100
+            
+            # Calculate NSD using official file-based function
+            # Use GT path as space reference for affine matrix
+            tolerance = self.config.get('evaluation', {}).get('nsd_tolerance', 1.0)
+            nsd_tensor = official_nsd(pred_path, gt_path, gt_path, tolerance=[tolerance])
+            
+            # Extract scalar value from tensor
+            if isinstance(nsd_tensor, torch.Tensor):
+                nsd_value = nsd_tensor.item()
+            else:
+                nsd_value = float(nsd_tensor)
+            nsd_percentage = nsd_value * 100
+            
+            return {
+                'dice': dice_percentage,
+                'nsd': nsd_percentage
+            }
+        except Exception as e:
+            self._print(f"Warning: Official file-based metrics failed: {e}")
+            # Fall back to array-based evaluation
+            return self.evaluate_single_case(pred_path, gt_path, use_file_metrics=False)
         
     def evaluate_model(self, dataset, method, model_type, seg_model, checkpoint_epoch=None, use_best_checkpoint=False):
         """Evaluate a trained model on test set

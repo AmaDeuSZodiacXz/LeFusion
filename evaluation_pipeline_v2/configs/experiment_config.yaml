@@ -77,7 +77,7 @@ evaluation:
   metrics:
     - dice
     - nsd
-  nsd_tolerance: 2  # mm
+  nsd_tolerance: 1.0  # mm (matching paper methodology)
   
 # Output directories
 output:
