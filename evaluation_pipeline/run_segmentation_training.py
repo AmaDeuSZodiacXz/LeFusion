@@ -47,7 +47,7 @@ def main():
     
     main_script_path = 'DiffTumor/STEP3.SegmentationModel/main.py'
     
-    # --- CORRECTED ARGUMENTS FOR LIDC LUNG NODULE SEGMENTATION ---
+    # --- PROPER 2-CHANNEL CONFIGURATION FOR LIDC BINARY SEGMENTATION ---
     training_command = [
         'python',
         main_script_path,
@@ -57,8 +57,10 @@ def main():
         '--max_epochs', '200',
         '--save_checkpoint',
         '--datafold_dir', 'datasets/LIDC_real',
-        '--tumor_type', 'lung',  # Fixed: was 'liver', now 'lung'
-        '--organ_type', 'lung',  # Fixed: was 'liver', now 'lung'
+        '--tumor_type', 'lung',
+        '--organ_type', 'lung',
+        '--out_channels', '2',  # Binary segmentation: background + nodule
+        '--num_classes', '2',   # Two classes: background and nodule
         '--fold', '0',
         '--workers', '1',
         '--cache_rate', '0.0'
