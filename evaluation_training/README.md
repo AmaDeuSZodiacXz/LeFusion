@@ -72,17 +72,27 @@ python test_paths.py
 # Run from evaluation_training directory
 cd evaluation_training
 
-# Full paper reproduction with all methods
+# Full paper reproduction with all methods (baseline, lefusion, lefusion_h, lefusion_h_diffmask)
 python run_complete_evaluation.py \
     --dataset lidc \
     --model-types pretrained \
-    --methods all
+    --methods baseline lefusion lefusion_h lefusion_h_diffmask
 
-# Quick test with single method
+# Quick test with baseline only
 python run_complete_evaluation.py --quick-test
 
-# Resume from checkpoint
-python run_complete_evaluation.py --resume
+# Skip synthetic generation (if already generated)
+python run_complete_evaluation.py \
+    --dataset lidc \
+    --model-types pretrained \
+    --skip-synthetic
+
+# Skip training (if models already trained)
+python run_complete_evaluation.py \
+    --dataset lidc \
+    --model-types pretrained \
+    --skip-synthetic \
+    --skip-training
 ```
 
 ## 📊 Methods Overview
@@ -187,6 +197,9 @@ evaluation_training/synthetic_data/
 #### Train All Models
 
 ```bash
+# Make sure you're in evaluation_training directory
+cd evaluation_training
+
 # All methods with both architectures
 python training/train_segmentation.py \
     --dataset lidc \
@@ -214,6 +227,9 @@ python training/train_segmentation.py \
 #### Evaluate Models
 
 ```bash
+# Make sure you're in evaluation_training directory
+cd evaluation_training
+
 # Evaluate all models and compare with paper
 python evaluation/evaluate_models.py \
     --dataset lidc \
@@ -231,9 +247,76 @@ python evaluation/evaluate_models.py \
     --use-best-checkpoint
 ```
 
+#### Epoch Selection for Evaluation
+
+The evaluation pipeline supports selecting specific checkpoints or epochs for evaluation:
+
+```bash
+# Evaluate using the best checkpoint (best_metric_model.pth)
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --methods all \
+    --use-best-checkpoint
+
+# Evaluate at a specific epoch (e.g., epoch 100)
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --methods all \
+    --checkpoint-epoch 100
+
+# Evaluate at epoch 150 for a specific configuration
+python evaluation/evaluate_models.py \
+    --dataset lidc \
+    --method lefusion_h_diffmask \
+    --model-type pretrained \
+    --seg-model swinunetr \
+    --checkpoint-epoch 150
+```
+
+**Available Checkpoint Options:**
+- `--use-best-checkpoint`: Uses `best_metric_model.pth` if available (highest validation DICE)
+- `--checkpoint-epoch N`: Uses checkpoint from epoch N (e.g., `epoch_100.pt`)
+- Default (no flag): Uses the latest available checkpoint in order:
+  1. `model_final.pt` (completed training)
+  2. `model.pt` (standard checkpoint)
+  3. `best_metric_model.pth` (best validation)
+  4. Latest `epoch_*.pt` file
+
+**Notes on Checkpoint Selection:**
+- The best checkpoint typically gives optimal results but may not exist if training was interrupted
+- Specific epoch selection is useful for:
+  - Comparing performance across training progress
+  - Debugging convergence issues
+  - Reproducing specific results
+- If the requested epoch checkpoint doesn't exist, the evaluation will fail with an appropriate error message
+
+**Evaluating Multiple Epochs:**
+To evaluate models at multiple epochs for performance tracking:
+
+```bash
+# Evaluate at multiple specific epochs
+for epoch in 50 100 150 200; do
+    echo "Evaluating at epoch $epoch"
+    python evaluation/evaluate_models.py \
+        --dataset lidc \
+        --methods lefusion_h_diffmask \
+        --model-type pretrained \
+        --seg-model nnunet \
+        --checkpoint-epoch $epoch
+done
+
+# Compare early vs late training performance
+python evaluation/evaluate_models.py --checkpoint-epoch 50   # Early training
+python evaluation/evaluate_models.py --checkpoint-epoch 150  # Mid training
+python evaluation/evaluate_models.py --use-best-checkpoint    # Best performance
+```
+
 #### Metric Validation
 
 ```bash
+# Make sure you're in evaluation_training directory
+cd evaluation_training
+
 # Test official metrics integration
 python test_official_metrics.py
 
@@ -348,6 +431,9 @@ training:
 Before training, prepare split files:
 
 ```bash
+# Make sure you're in evaluation_training directory
+cd evaluation_training
+
 # Auto-generate splits for LIDC
 python utils/create_data_splits.py --dataset lidc
 
@@ -355,12 +441,13 @@ python utils/create_data_splits.py --dataset lidc
 python utils/create_data_splits.py --dataset emidec
 
 # Verify structure (data will be in utility_training_resources)
-../utility_training_resources/datasets/LIDC_real/
-├── imagesTr/
-├── labelsTr/
-├── real_lung_train_0.txt
-├── real_lung_val_0.txt
-└── test.txt
+ls -la ../utility_training_resources/datasets/LIDC_real/
+# Should show:
+# ├── imagesTr/
+# ├── labelsTr/
+# ├── real_lung_train_0.txt
+# ├── real_lung_val_0.txt
+# └── test.txt
 ```
 
 ## 🐛 Troubleshooting
@@ -379,6 +466,9 @@ pip install torch monai nibabel scipy pandas matplotlib
 
 ### Validation Failed
 ```bash
+# Make sure you're in evaluation_training directory
+cd evaluation_training
+
 # Test metrics independently
 python test_official_metrics.py
 
