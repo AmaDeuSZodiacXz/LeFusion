@@ -1,0 +1,132 @@
+# NeuralSynth Training Configuration
+# Following LeFusion evaluation_training structure
+
+# Dataset settings
+datasets:
+  lidc:
+    name: "LIDC-IDRI"
+    data_path: "../data/LIDC"  # Relative to NeuralSynth directory
+    patch_size: [64, 64, 32]
+    spacing: [1.0, 1.0, 1.0]
+    num_classes: 2  # Background + lesion
+    cache_rate: 0.5
+    
+  emidec:
+    name: "EMIDEC"
+    data_path: "../data/EMIDEC"  # Relative to NeuralSynth directory
+    patch_size: [72, 72, 10]
+    spacing: [1.25, 1.25, 8.0]
+    num_classes: 3  # Background + MI + PMO
+    cache_rate: 0.3
+
+# Model settings
+models:
+  nnunet:
+    name: "nnU-Net"
+    in_channels: 1
+    feature_size: 48
+    num_levels: 5
+    max_features: 320
+    norm_name: "instance"
+    
+  swinunetr:
+    name: "SwinUNETR"
+    in_channels: 1
+    feature_size: 48
+    depths: [2, 2, 2, 2]
+    num_heads: [3, 6, 12, 24]
+    norm_name: "instance"
+    use_checkpoint: true
+
+# Training hyperparameters
+training:
+  # General
+  num_epochs: 200
+  val_interval: 5
+  save_interval: 20
+  deterministic: true
+  seed: 42
+  
+  # nnU-Net specific
+  nnunet:
+    batch_size: 2
+    learning_rate: 0.01
+    optimizer: "SGD"
+    momentum: 0.99
+    weight_decay: 3e-5
+    
+  # SwinUNETR specific
+  swinunetr:
+    batch_size: 4
+    learning_rate: 1e-4
+    optimizer: "AdamW"
+    weight_decay: 1e-5
+    warmup_epochs: 50
+
+# Data combinations (following LeFusion paper)
+data_combinations:
+  P:
+    description: "Real pathological only (baseline)"
+    include_real: true
+    include_synthetic: false
+    
+  P_P_prime:
+    description: "Real + synthetic from pathological"
+    include_real: true
+    synthetic_types: ["P_P_prime"]
+    
+  P_N_prime:
+    description: "Real + synthetic from normal (NeuralSynth main)"
+    include_real: true
+    synthetic_types: ["P_N_prime"]
+    
+  P_N_double_prime:
+    description: "Real + 2x synthetic from normal"
+    include_real: true
+    synthetic_types: ["P_N_double_prime"]
+    
+  P_P_prime_N_double_prime:
+    description: "All data combined"
+    include_real: true
+    synthetic_types: ["P_P_prime", "P_N_prime", "P_N_double_prime"]
+
+# Augmentation settings
+augmentation:
+  random_flip:
+    prob: 0.5
+    spatial_axis: [0, 1, 2]
+    
+  random_rotate90:
+    prob: 0.5
+    max_k: 3
+    
+  random_intensity_shift:
+    prob: 0.5
+    offsets: 0.1
+    
+  random_scale_intensity:
+    prob: 0.3
+    factors: 0.1
+    
+  elastic_deform:
+    prob: 0.2
+    sigma_range: [5, 7]
+    magnitude_range: [50, 150]
+
+# Hardware settings
+hardware:
+  device: "cuda"
+  num_workers: 4
+  pin_memory: true
+  mixed_precision: true
+  distributed: false
+
+# Paths (all relative to NeuralSynth directory)
+paths:
+  base_dir: ".."  # Parent directory (LeFusion)
+  neuralsynth_dir: "."  # Current directory
+  data_dir: "../data"
+  synthetic_data_dir: "./synthetic_data"
+  trained_models_dir: "./trained_models"
+  evaluation_results_dir: "./evaluation_results"
+  difftumor_path: "../utility_training_resources/DiffTumor/STEP3.SegmentationModel"
