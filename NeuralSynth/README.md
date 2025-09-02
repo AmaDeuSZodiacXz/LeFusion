@@ -181,27 +181,19 @@ NeuralSynth is a novel medical image synthesis technique that advances beyond Le
 ```
 NeuralSynth/
 │
-├── 📁 STEP1_train_synthetic_model/     # Train NeuralSynth diffusion model
+├── 📁 synthetic_training/               # Train NeuralSynth diffusion model
 │   ├── train_lidc.py                   # Train on LIDC dataset
 │   ├── train_emidec.py                 # Train on EMIDEC dataset
-│   ├── model/
-│   │   ├── neuralsynth_diffusion.py    # Core diffusion architecture
-│   │   ├── adaptive_noise.py           # Adaptive noise scheduling
-│   │   ├── lesion_attention.py         # Lesion-aware attention
-│   │   └── advanced_losses.py          # 7-component loss system
-│   ├── configs/
-│   │   ├── lidc_config.yaml            # LIDC training configuration
-│   │   └── emidec_config.yaml          # EMIDEC training configuration
 │   └── README.md                        # Detailed training guide
 │
-├── 📁 STEP2_generate_synthetic_data/    # Generate synthetic pathological from normal
+├── 📁 synthetic_generation/             # Generate synthetic pathological from normal
 │   ├── generate_from_normal.py         # Main generation script
 │   ├── mask_generator.py               # Lesion mask generation
 │   ├── histogram_control.py            # Multi-peak lesion control
 │   ├── batch_generation.py             # Batch processing for large datasets
 │   └── README.md                        # Generation guide
 │
-├── 📁 STEP3_train_segmentation/         # Train segmentation with DiffTumor
+├── 📁 segmentation_training/            # Train segmentation with DiffTumor
 │   ├── prepare_data_combinations.py    # Prepare P, P+N', P+P'+N'' combinations
 │   ├── train_with_difftumor.py        # Integration with DiffTumor framework
 │   ├── configs/
@@ -209,12 +201,17 @@ NeuralSynth/
 │   │   └── swinunetr_config.yaml      # SwinUNETR configuration
 │   └── README.md                        # DiffTumor training guide
 │
-├── 📁 STEP4_evaluation/                 # Evaluate and compare with baselines
+├── 📁 evaluation_pipeline/              # Evaluate and compare with baselines
 │   ├── evaluate_segmentation.py        # Compute DICE, NSD metrics
 │   ├── compare_with_lefusion.py        # Comparison with LeFusion variants
 │   ├── statistical_analysis.py         # Significance tests
 │   ├── generate_figures.py             # Create paper figures
 │   └── README.md                        # Evaluation guide
+│
+├── 📁 models/                           # Core model architectures
+│   ├── neuralsynth_core.py            # Main NeuralSynth diffusion model
+│   ├── advanced_losses.py             # 7-component loss system
+│   └── optimized_inference.py         # DDIM sampling optimization
 │
 ├── 📁 checkpoints/                      # Saved model weights
 │   ├── lidc/
@@ -232,13 +229,22 @@ NeuralSynth/
 │   └── emidec/
 │       └── [same structure]
 │
-├── 📁 segmentation_models/              # Trained segmentation models
+├── 📁 trained_models/                   # Trained segmentation models
 │   ├── lidc/
 │   │   ├── baseline_P_only/           # Trained on real only
 │   │   ├── neuralsynth_P_N_prime/     # Trained on real + synthetic
 │   │   └── neuralsynth_all_combined/  # Trained on all combinations
 │   └── emidec/
 │       └── [same structure]
+│
+├── 📁 pipeline/                         # End-to-end pipeline scripts
+│   ├── full_pipeline.py               # Complete training pipeline
+│   ├── difftumor_integration.py       # DiffTumor integration
+│   ├── segmentation_training.py       # Segmentation training pipeline
+│   └── config.yaml                    # Pipeline configuration
+│
+├── 📁 configs/                          # Configuration files
+│   └── training_config.yaml           # Main training configuration
 │
 ├── 📁 results/                          # Evaluation results
 │   ├── metrics/
@@ -261,7 +267,13 @@ NeuralSynth/
 │   ├── visualization.py                # Plotting functions
 │   └── path_utils.py                   # Path management
 │
+├── 📁 paper/                            # Paper-related materials
+│   ├── neuralsynth_paper.tex          # LaTeX source
+│   ├── references.bib                 # Bibliography
+│   └── iclr2025_conference.sty        # Conference style file
+│
 ├── requirements.txt                     # Python dependencies
+├── verify_installation.py              # Installation verification script
 ├── LICENSE                              # MIT License
 └── README.md                           # This file
 ```
@@ -284,12 +296,12 @@ bash scripts/run_complete_pipeline.sh --dataset emidec --gpu 0
 
 ## Step-by-Step Guide
 
-### STEP 1: Train Synthetic Model (NeuralSynth Technique)
+### Step 1: Train Synthetic Model (NeuralSynth Technique)
 
 This is our novel contribution - training a diffusion model with adaptive noise scheduling and lesion-aware attention.
 
 ```bash
-cd STEP1_train_synthetic_model/
+cd synthetic_training/
 
 # Train on LIDC dataset
 python train_lidc.py \
@@ -316,12 +328,12 @@ python train_emidec.py \
 - LIDC: ~36 hours on single A100 GPU
 - EMIDEC: ~24 hours on single A100 GPU
 
-### STEP 2: Generate Synthetic Data from Normal Cases
+### Step 2: Generate Synthetic Data from Normal Cases
 
 Use the trained model to generate synthetic pathological images from abundant normal cases.
 
 ```bash
-cd ../STEP2_generate_synthetic_data/
+cd ../synthetic_generation/
 
 # Generate synthetic LIDC data
 python generate_from_normal.py \
@@ -341,12 +353,12 @@ python generate_from_normal.py --output_dir ../synthetic_data/lidc/P_N_double_pr
 - ~2 seconds per image (50 DDIM steps)
 - vs ~40 seconds for LeFusion (1000 steps)
 
-### STEP 3: Train Segmentation Models with DiffTumor
+### Step 3: Train Segmentation Models with DiffTumor
 
 Train segmentation models using combinations of real and synthetic data with the DiffTumor framework.
 
 ```bash
-cd ../STEP3_train_segmentation/
+cd ../segmentation_training/
 
 # Prepare data combinations
 python prepare_data_combinations.py \
@@ -360,7 +372,7 @@ python train_with_difftumor.py \
     --data_combination P_N_prime \
     --model_type nnunet \
     --epochs 200 \
-    --output_dir ../segmentation_models/lidc/neuralsynth_P_N_prime
+    --output_dir ../trained_models/lidc/neuralsynth_P_N_prime
 ```
 
 **Data Combinations:**
@@ -369,16 +381,16 @@ python train_with_difftumor.py \
 - `P_N_prime`: Real + synthetic from normal (our main approach)
 - `P_P_prime_N_double_prime`: All combined
 
-### STEP 4: Evaluation
+### Step 4: Evaluation
 
 Evaluate segmentation performance and compare with LeFusion baselines.
 
 ```bash
-cd ../STEP4_evaluation/
+cd ../evaluation_pipeline/
 
 # Evaluate segmentation models
 python evaluate_segmentation.py \
-    --model_path ../segmentation_models/lidc/neuralsynth_P_N_prime/best_model.pth \
+    --model_path ../trained_models/lidc/neuralsynth_P_N_prime/best_model.pth \
     --test_data ../data/LIDC/Test \
     --output_dir ../results/metrics
 

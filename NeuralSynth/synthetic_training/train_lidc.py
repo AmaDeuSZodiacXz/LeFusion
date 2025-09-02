@@ -30,8 +30,7 @@ from models.neuralsynth_core import (
     NeuralSynthConfig,
     AdaptiveNoiseScheduler
 )
-from models.advanced_losses import NeuralSynthLoss, DiffusionLoss
-from utils.path_utils import get_project_paths
+from models.advanced_losses import DiffusionLoss
 
 
 class LIDCDataset(Dataset):
