@@ -183,11 +183,11 @@ def train_steps(model, dataloader, optimizer, criterion, device, num_steps, save
         optimizer.zero_grad()
         loss.backward()
         
-        # Gradient clipping
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        # Gradient clipping - more aggressive for stability
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
         
         # Skip if gradients too large
-        if grad_norm > 10.0:
+        if grad_norm > 100.0:
             print(f"Warning: Large gradient norm {grad_norm:.2f}, skipping...")
             optimizer.zero_grad()
             continue
