@@ -10,14 +10,132 @@
 
 ## 📋 Table of Contents
 
-1. [Overview](#overview)
-2. [Key Innovations](#key-innovations)
-3. [Project Structure](#project-structure)
-4. [Installation](#installation)
+1. [Installation & Setup](#installation--setup)
+2. [Overview](#overview)
+3. [Key Innovations](#key-innovations)
+4. [Project Structure](#project-structure)
 5. [Complete Pipeline](#complete-pipeline)
 6. [Step-by-Step Guide](#step-by-step-guide)
 7. [Expected Results](#expected-results)
 8. [Citation](#citation)
+
+---
+
+## Installation & Setup
+
+### System Requirements
+- **Python**: 3.8 or higher
+- **CUDA**: 11.0+ (for GPU support)
+- **GPU Memory**: 16GB+ recommended (minimum 8GB)
+- **RAM**: 32GB+ recommended
+- **Storage**: 50GB+ free space for data and models
+
+### Quick Setup
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/NeuralSynth.git
+cd NeuralSynth
+
+# 2. Create and activate virtual environment
+python3 -m venv neuralsynth_env
+source neuralsynth_env/bin/activate  # On Windows: neuralsynth_env\Scripts\activate
+
+# 3. Upgrade pip
+pip install --upgrade pip
+
+# 4. Install PyTorch with CUDA support (adjust cuda version as needed)
+# For CUDA 11.8
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# For CUDA 12.1
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# 5. Install all requirements
+pip install -r requirements.txt
+
+# 6. Verify installation
+python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+python -c "import monai; print(f'MONAI: {monai.__version__}')"
+```
+
+### Alternative Setup with Conda
+
+```bash
+# 1. Create conda environment
+conda create -n neuralsynth python=3.8
+conda activate neuralsynth
+
+# 2. Install PyTorch with conda
+conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+# 3. Install requirements
+pip install -r requirements.txt
+```
+
+### Optional Components
+
+For full functionality, you may also want to install:
+
+```bash
+# For experiment tracking (optional)
+pip install wandb
+wandb login  # Enter your API key
+
+# For memory-efficient attention (recommended for large images)
+pip install xformers
+
+# For distributed training (optional)
+pip install horovod
+
+# For development and testing
+pip install -r requirements-dev.txt
+```
+
+### Troubleshooting Installation
+
+1. **CUDA Version Mismatch**
+   ```bash
+   # Check your CUDA version
+   nvidia-smi
+   
+   # Install matching PyTorch version from https://pytorch.org/
+   ```
+
+2. **Memory Issues During Installation**
+   ```bash
+   # Install packages one by one if memory limited
+   pip install torch torchvision torchaudio --no-cache-dir
+   pip install -r requirements.txt --no-cache-dir
+   ```
+
+3. **Permission Errors**
+   ```bash
+   # Use user installation
+   pip install --user -r requirements.txt
+   ```
+
+### Verify Environment Setup
+
+Run the verification script to ensure everything is properly installed:
+
+```bash
+python verify_installation.py
+```
+
+Expected output:
+```
+✅ Python version: 3.8.10
+✅ PyTorch version: 2.0.1
+✅ CUDA available: True
+✅ CUDA version: 11.8
+✅ MONAI installed: 1.2.0
+✅ Diffusers installed: 0.21.0
+✅ All core dependencies satisfied
+✅ GPU Memory: 40960 MB available
+✅ Environment ready for NeuralSynth!
+```
 
 ---
 
@@ -146,37 +264,6 @@ NeuralSynth/
 ├── requirements.txt                     # Python dependencies
 ├── LICENSE                              # MIT License
 └── README.md                           # This file
-```
-
----
-
-## Installation
-
-### Prerequisites
-- Python 3.8+
-- CUDA 11.0+ (for GPU support)
-- 16GB+ GPU memory (recommended)
-
-### Setup Instructions
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/NeuralSynth.git
-cd NeuralSynth
-
-# 2. Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Verify installation
-python -c "import torch; print(f'PyTorch: {torch.__version__}')"
-python -c "import monai; print(f'MONAI: {monai.__version__}')"
-
-# 5. Download data (if not already available)
-# LIDC and EMIDEC datasets should be in ../data/
 ```
 
 ---
