@@ -1,0 +1,122 @@
+% ICLR 2025 Conference Style File
+% Based on NeurIPS style with modifications
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{iclr2025_conference}[2024/12/01 ICLR 2025 Conference Style]
+
+% Page dimensions
+\usepackage[letterpaper,margin=1in]{geometry}
+\setlength{\columnsep}{0.25in}
+
+% Fonts and spacing
+\usepackage{times}
+\usepackage{helvet}
+\usepackage{courier}
+\renewcommand{\familydefault}{\sfdefault}
+
+% Section formatting
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\subsubsection}{\normalsize\itshape}{\thesubsubsection.}{0.5em}{}
+
+\titlespacing{\section}{0pt}{6pt}{4pt}
+\titlespacing{\subsection}{0pt}{4pt}{2pt}
+\titlespacing{\subsubsection}{0pt}{3pt}{1pt}
+
+% Abstract formatting
+\renewenvironment{abstract}{%
+  \centerline{\large\bfseries Abstract}
+  \vspace{0.5ex}
+  \begin{quote}
+  \small
+}{%
+  \end{quote}
+  \vspace{1ex}
+}
+
+% Title formatting
+\renewcommand{\maketitle}{%
+  \twocolumn[%
+    \begin{center}
+      {\LARGE\bfseries \@title\par}
+      \vspace{2ex}
+      {\large \@author\par}
+      \vspace{1ex}
+    \end{center}
+    \vspace{2ex}
+  ]
+}
+
+% Caption formatting
+\usepackage[font=small,labelfont=bf]{caption}
+\captionsetup{belowskip=0pt,aboveskip=4pt}
+
+% Bibliography style
+\bibliographystyle{unsrt}
+
+% Table formatting
+\renewcommand{\arraystretch}{1.1}
+\setlength{\tabcolsep}{4pt}
+
+% Figure and table placement
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.8}
+
+% Paragraph spacing
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+
+% List spacing
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+
+% Hyperref settings
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+% Math packages
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm,algorithmic}
+
+% Graphics
+\usepackage{graphicx}
+\usepackage{subfigure}
+
+% Tables
+\usepackage{booktabs}
+\usepackage{multirow}
+
+% Colors
+\usepackage{xcolor}
+\definecolor{lightgray}{gray}{0.9}
+\definecolor{darkgreen}{rgb}{0,0.5,0}
+
+% Custom commands
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+\newcommand{\note}[1]{\textcolor{blue}{[NOTE: #1]}}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+
+% Code listings
+\usepackage{listings}
+\lstset{
+  basicstyle=\small\ttfamily,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{lightgray}
+}
+
+\endinput

@@ -1,0 +1,201 @@
+# NeuralSynth Pipeline Configuration
+# Building on LeFusion's approach with improvements
+
+# Dataset configurations
+datasets:
+  lidc:
+    name: "LIDC-IDRI"
+    type: "lung_nodule"
+    data_paths:
+      normal: "/Users/skb/Documents/LeFusion/data/LIDC/normal"
+      pathological: "/Users/skb/Documents/LeFusion/data/LIDC/pathological"
+      synthetic: "/Users/skb/Documents/LeFusion/data/LIDC/synthetic_neuralsynth"
+    image_size: [64, 64, 32]
+    spacing: [1.0, 1.0, 1.0]
+    num_classes: 1
+    # Multi-peak lesion control (LeFusion's histogram approach)
+    histogram_control:
+      enabled: true
+      clusters: 3  # ground-glass, part-solid, solid
+      weights: [0.75, 0.20, 0.05]
+    # Synthesis settings
+    synthesis:
+      num_synthetic_per_normal: 3
+      lesion_size_range: [10, 30]
+      spiculated_ratio: 0.3  # 30% spiculated nodules
+    
+  emidec:
+    name: "EMIDEC"
+    type: "cardiac_lesion"
+    data_paths:
+      normal: "/Users/skb/Documents/LeFusion/data/EMIDEC/normal"
+      pathological: "/Users/skb/Documents/LeFusion/data/EMIDEC/pathological"
+      synthetic: "/Users/skb/Documents/LeFusion/data/EMIDEC/synthetic_neuralsynth"
+    image_size: [72, 72, 10]
+    spacing: "original"
+    num_classes: 2  # MI and PMO
+    # Multi-class decomposition (LeFusion approach)
+    multi_class:
+      enabled: true
+      classes: ["MI", "PMO"]
+      correlation_modeling: true
+    # Synthesis settings
+    synthesis:
+      num_synthetic_per_normal: 2
+      lesion_size_range: [15, 40]
+
+# Model configurations
+model:
+  # Core architecture
+  architecture:
+    base_channels: 128  # 2x LeFusion's 64
+    channel_mult: [1, 2, 4, 8]
+    attention_resolutions: [16, 8]
+    num_res_blocks: 3
+    dropout: 0.1
+    num_heads: 8
+    
+  # Key innovations beyond LeFusion
+  innovations:
+    # 1. Adaptive Noise Scheduling (improvement over LeFusion's fixed)
+    adaptive_noise:
+      enabled: true
+      learnable_beta: true
+      base_schedule: "cosine"
+      
+    # 2. Lesion-Aware Attention (beyond LeFusion's uniform)
+    lesion_attention:
+      enabled: true
+      spatial_bias: true
+      boundary_focus: true
+      
+    # 3. Multi-Scale Features (LeFusion is single-scale)
+    multi_scale:
+      enabled: true
+      scales: [1.0, 0.5, 0.25]
+      fusion: "learned"
+      
+    # 4. Background Preservation (core LeFusion feature, enhanced)
+    background_preservation:
+      enabled: true  # ALWAYS true - this is key!
+      boundary_smoothing: true
+      sigma: 2.0
+      adaptive_sigma: true
+
+# Training configurations
+training:
+  # General settings
+  batch_size: 8
+  learning_rate: 1e-4
+  optimizer: "AdamW"
+  scheduler: "cosine_annealing"
+  num_epochs: 200
+  gradient_clip: 1.0
+  ema_decay: 0.9999
+  
+  # Loss weights (comprehensive beyond LeFusion)
+  loss_weights:
+    diffusion: 1.0
+    perceptual: 0.1
+    ssim: 0.05
+    frequency: 0.02
+    edge: 0.02
+    lesion_consistency: 0.1
+    adversarial: 0.01
+  
+  # Diffusion settings
+  diffusion:
+    timesteps: 1000
+    beta_start: 0.0001
+    beta_end: 0.02
+    
+  # Data augmentation
+  augmentation:
+    random_flip: true
+    random_rotate: true
+    elastic_deform: true
+    intensity_shift: true
+    
+# Inference configurations
+inference:
+  # DDIM sampling (50 steps vs LeFusion's 1000)
+  sampling:
+    method: "DDIM"
+    steps: 50
+    eta: 0.0
+    
+  # Batch processing
+  batch_size: 4
+  
+  # Caching for speed
+  cache:
+    enabled: true
+    cache_size: 100
+    
+# Evaluation configurations
+evaluation:
+  # Segmentation metrics
+  segmentation:
+    models: ["nnUNet", "SwinUNETR"]
+    metrics: ["dice", "iou", "hausdorff", "nsd"]
+    
+  # Image quality metrics
+  quality:
+    metrics: ["ssim", "psnr", "lpips", "mae", "rmse"]
+    
+  # Clinical metrics (new beyond LeFusion)
+  clinical:
+    detection_rate: true
+    localization_error: true
+    shape_similarity: true
+    size_distribution: true
+    
+  # Textural metrics (new)
+  textural:
+    glcm: true
+    radiomics: true
+    histogram_matching: true
+
+# Pipeline execution modes
+pipeline:
+  modes:
+    # Mode 1: Training from scratch
+    train:
+      enabled: true
+      checkpoint_dir: "./checkpoints"
+      log_dir: "./logs"
+      save_frequency: 10  # epochs
+      
+    # Mode 2: Normal-to-pathological synthesis
+    synthesis:
+      enabled: true
+      use_pretrained: true
+      checkpoint_path: "auto"  # auto-detect best
+      output_format: "npz"
+      save_metadata: true
+      
+    # Mode 3: Evaluation
+    evaluate:
+      enabled: true
+      compare_with: ["LeFusion", "LeFusion-H", "LeFusion-H+DiffMask"]
+      generate_report: true
+      visualize: true
+
+# Hardware settings
+hardware:
+  device: "cuda"
+  multi_gpu: true
+  num_workers: 4
+  pin_memory: true
+  mixed_precision: true
+
+# Logging and monitoring
+logging:
+  level: "INFO"
+  wandb:
+    enabled: true
+    project: "neuralsynth"
+    tags: ["medical", "synthesis", "diffusion"]
+  tensorboard:
+    enabled: true
+    log_dir: "./tensorboard_logs"
