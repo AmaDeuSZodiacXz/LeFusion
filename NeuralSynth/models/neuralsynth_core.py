@@ -52,8 +52,11 @@ class AdaptiveNoiseScheduler(nn.Module):
         return torch.clip(betas, 0.0001, 0.9999)
     
     def forward(self, t: torch.Tensor) -> torch.Tensor:
-        adaptive_factor = torch.sigmoid(self.learnable_beta)
-        betas = self.base_beta * (1 + 0.1 * adaptive_factor)
+        # Ensure everything is on the same device as t
+        device = t.device
+        adaptive_factor = torch.sigmoid(self.learnable_beta.to(device))
+        base_beta = self.base_beta.to(device)
+        betas = base_beta * (1 + 0.1 * adaptive_factor)
         return betas[t]
 
 
