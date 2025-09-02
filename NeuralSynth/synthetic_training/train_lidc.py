@@ -41,9 +41,26 @@ class LIDCDataset(Dataset):
         self.split = split
         self.transform = transform
         
-        # Get all .nii.gz files
-        self.image_files = sorted(list(self.data_dir.glob('**/*image*.nii.gz')))
-        self.mask_files = sorted(list(self.data_dir.glob('**/*mask*.nii.gz')))
+        # Get all .nii.gz files - also check for .nii files
+        self.image_files = sorted(list(self.data_dir.glob('**/*.nii.gz')) + 
+                                 list(self.data_dir.glob('**/*.nii')))
+        
+        # Filter for images and masks
+        self.image_files = [f for f in self.image_files if 'mask' not in f.name.lower()]
+        self.mask_files = [f for f in self.image_files if 'mask' in f.name.lower()]
+        
+        # If no files found with above pattern, try alternative patterns
+        if len(self.image_files) == 0:
+            print(f"No image files found with standard pattern. Checking directory contents...")
+            all_files = list(self.data_dir.rglob('*'))
+            print(f"Found {len(all_files)} total files in {self.data_dir}")
+            # Try to find any nifti files
+            nifti_files = [f for f in all_files if f.suffix in ['.nii', '.gz']]
+            print(f"Found {len(nifti_files)} nifti files")
+            if len(nifti_files) > 0:
+                print(f"Sample files: {nifti_files[:3]}")
+            self.image_files = nifti_files
+            self.mask_files = []  # Will need to handle differently
         
         # Also check for normal cases (for background)
         normal_dir = self.data_dir.parent / 'Normal'

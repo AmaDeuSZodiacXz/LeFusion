@@ -95,18 +95,24 @@ class MultiScaleFeatureExtractor(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, scales: List[int] = [1, 2, 4]):
         super().__init__()
         self.scales = scales
+        # Ensure channels per scale is divisible by group norm groups
+        channels_per_scale = out_channels // len(scales)
+        # Make sure it's divisible by 8, or use fewer groups
+        num_groups = min(8, channels_per_scale)
+        
         self.extractors = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, out_channels // len(scales), 3, padding=1),
-                nn.GroupNorm(8, out_channels // len(scales)),
+                nn.Conv2d(in_channels, channels_per_scale, 3, padding=1),
+                nn.GroupNorm(num_groups, channels_per_scale),
                 nn.SiLU(),
-                nn.Conv2d(out_channels // len(scales), out_channels // len(scales), 3, padding=1),
-                nn.GroupNorm(8, out_channels // len(scales)),
+                nn.Conv2d(channels_per_scale, channels_per_scale, 3, padding=1),
+                nn.GroupNorm(num_groups, channels_per_scale),
                 nn.SiLU()
             ) for _ in scales
         ])
         
-        self.fusion = nn.Conv2d(out_channels, out_channels, 1)
+        # Fusion layer to combine and adjust to exact output channels
+        self.fusion = nn.Conv2d(channels_per_scale * len(scales), out_channels, 1)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = []
