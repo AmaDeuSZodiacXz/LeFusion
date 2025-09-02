@@ -95,10 +95,17 @@ class MultiScaleFeatureExtractor(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, scales: List[int] = [1, 2, 4]):
         super().__init__()
         self.scales = scales
-        # Ensure channels per scale is divisible by group norm groups
-        channels_per_scale = out_channels // len(scales)
-        # Make sure it's divisible by 8, or use fewer groups
-        num_groups = min(8, channels_per_scale)
+        
+        # Make channels_per_scale divisible by common group sizes
+        # Round to nearest multiple of 8 for better compatibility
+        channels_per_scale = (out_channels // len(scales) // 8) * 8
+        if channels_per_scale == 0:
+            channels_per_scale = 8
+        
+        # Calculate appropriate number of groups
+        # Find the largest divisor of channels_per_scale that's <= 8
+        possible_groups = [g for g in [8, 4, 2, 1] if channels_per_scale % g == 0]
+        num_groups = possible_groups[0] if possible_groups else 1
         
         self.extractors = nn.ModuleList([
             nn.Sequential(
