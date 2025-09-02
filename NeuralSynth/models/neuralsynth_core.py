@@ -41,7 +41,8 @@ class AdaptiveNoiseScheduler(nn.Module):
         super().__init__()
         self.num_timesteps = num_timesteps
         self.learnable_beta = nn.Parameter(torch.zeros(num_timesteps))
-        self.base_beta = self._cosine_beta_schedule(num_timesteps)
+        # Register base_beta as a buffer so it moves with the model
+        self.register_buffer('base_beta', self._cosine_beta_schedule(num_timesteps))
         
     def _cosine_beta_schedule(self, timesteps, s=0.008):
         steps = timesteps + 1
@@ -52,11 +53,9 @@ class AdaptiveNoiseScheduler(nn.Module):
         return torch.clip(betas, 0.0001, 0.9999)
     
     def forward(self, t: torch.Tensor) -> torch.Tensor:
-        # Ensure everything is on the same device as t
-        device = t.device
-        adaptive_factor = torch.sigmoid(self.learnable_beta.to(device))
-        base_beta = self.base_beta.to(device)
-        betas = base_beta * (1 + 0.1 * adaptive_factor)
+        # base_beta is already on the correct device as a buffer
+        adaptive_factor = torch.sigmoid(self.learnable_beta)
+        betas = self.base_beta * (1 + 0.1 * adaptive_factor)
         return betas[t]
 
 
@@ -68,7 +67,8 @@ class LesionAwareAttention(nn.Module):
         
         self.to_qkv = nn.Linear(dim, dim * 3, bias=False)
         self.lesion_embed = nn.Embedding(num_classes + 1, dim)
-        self.lesion_proj = nn.Linear(dim, dim)
+        # Project to match the per-head dimension
+        self.lesion_proj = nn.Linear(dim, dim // num_heads)
         
         self.to_out = nn.Sequential(
             nn.Linear(dim, dim),
@@ -81,9 +81,24 @@ class LesionAwareAttention(nn.Module):
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.num_heads), qkv)
         
         if lesion_mask is not None:
-            lesion_emb = self.lesion_embed(lesion_mask.long())
-            lesion_emb = self.lesion_proj(lesion_emb)
+            # lesion_mask should be [batch, seq_len] with integer class indices
+            # Truncate mask to match sequence length if needed
+            if lesion_mask.shape[1] > n:
+                lesion_mask = lesion_mask[:, :n]
+            elif lesion_mask.shape[1] < n:
+                # Pad with zeros if mask is shorter
+                padding = torch.zeros((b, n - lesion_mask.shape[1]), dtype=lesion_mask.dtype, device=lesion_mask.device)
+                lesion_mask = torch.cat([lesion_mask, padding], dim=1)
+            
+            # Get embeddings
+            lesion_emb = self.lesion_embed(lesion_mask)  # [batch, seq_len, embed_dim]
+            lesion_emb = self.lesion_proj(lesion_emb)    # [batch, seq_len, dim//num_heads]
+            
+            # Reshape for addition with v which is [b, h, n, d] where d = dim // num_heads
             lesion_emb = rearrange(lesion_emb, 'b n d -> b 1 n d')
+            
+            # v has shape [b, h, n, d] where h=num_heads, d=dim//num_heads
+            # lesion_emb needs to broadcast over heads dimension
             v = v + lesion_emb
         
         attn = torch.matmul(q, k.transpose(-2, -1)) * self.scale
@@ -95,7 +110,7 @@ class LesionAwareAttention(nn.Module):
 
 
 class MultiScaleFeatureExtractor(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, scales: List[int] = [1, 2, 4]):
+    def __init__(self, in_channels: int, out_channels: int, scales: List[float] = [1.0, 0.5, 0.25]):
         super().__init__()
         self.scales = scales
         
@@ -127,8 +142,8 @@ class MultiScaleFeatureExtractor(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = []
         for scale, extractor in zip(self.scales, self.extractors):
-            if scale != 1:
-                scaled_x = F.interpolate(x, scale_factor=1/scale, mode='bilinear', align_corners=False)
+            if scale != 1.0:
+                scaled_x = F.interpolate(x, scale_factor=scale, mode='bilinear', align_corners=False)
                 feat = extractor(scaled_x)
                 feat = F.interpolate(feat, size=x.shape[-2:], mode='bilinear', align_corners=False)
             else:
@@ -175,7 +190,7 @@ class ResidualBlock(nn.Module):
             scale, shift = torch.chunk(time_emb, 2, dim=1)
             h = self.norm2(h) * (1 + scale) + shift
         else:
-            h = self.norm2(h + time_emb)
+            h = self.norm2(h) + time_emb
         
         h = F.silu(h)
         h = self.dropout(h)
@@ -231,10 +246,12 @@ class NeuralSynthUNet(nn.Module):
         self.up_blocks = nn.ModuleList()
         for level in reversed(range(len(config.channel_mult))):
             for i in range(config.num_res_blocks + 1):
+                # For the first block at each level, we concatenate skip connection
+                in_ch = ch + channels[level] if i == 0 else channels[level]
+                out_ch = channels[level]
                 self.up_blocks.append(
                     ResidualBlock(
-                        ch + channels[level] if i == 0 else channels[level],
-                        channels[level], time_emb_dim, 
+                        in_ch, out_ch, time_emb_dim, 
                         config.dropout, config.use_scale_shift_norm
                     )
                 )
@@ -270,17 +287,34 @@ class NeuralSynthUNet(nn.Module):
         time_emb = self.time_embed(time_emb)
         
         if lesion_mask is not None:
-            lesion_emb = self.lesion_embed(lesion_mask.long().mean(dim=[2, 3]))
+            # Convert mask to class index (assuming binary mask for now)
+            # Mean over spatial dimensions first, then convert to long
+            mask_mean = lesion_mask.mean(dim=[2, 3])  # Average over spatial dims
+            mask_class = (mask_mean > 0.5).long()  # Binary classification
+            # Squeeze to remove channel dimension if present
+            if mask_class.dim() == 2:
+                mask_class = mask_class.squeeze(1)
+            lesion_emb = self.lesion_embed(mask_class)
             time_emb = time_emb + lesion_emb
         
         h = self.input_conv(x)
         
+        # Collect skip connections at each resolution level
         skips = []
-        for block in self.down_blocks:
+        for i, block in enumerate(self.down_blocks):
             if isinstance(block, ResidualBlock):
                 h = block(h, time_emb)
-                skips.append(h)
+                # Only save skip from the last ResidualBlock before downsampling
+                # Check if next block is a downsampling layer or if this is the last block
+                if i + 1 < len(self.down_blocks):
+                    next_is_downsample = not isinstance(self.down_blocks[i + 1], ResidualBlock)
+                    if next_is_downsample:
+                        skips.append(h)
+                else:
+                    # Last block in down_blocks
+                    skips.append(h)
             else:
+                # Downsampling layer
                 h = block(h)
         
         for block in self.middle_block:
@@ -290,7 +324,12 @@ class NeuralSynthUNet(nn.Module):
                 b, c, height, width = h.shape
                 h_flat = rearrange(h, 'b c h w -> b (h w) c')
                 if lesion_mask is not None:
-                    mask_flat = rearrange(lesion_mask, 'b c h w -> b (h w) c').squeeze(-1)
+                    # For attention, we need a mask that indicates presence/absence per position
+                    # Average over channels and flatten spatial dimensions
+                    mask_flat = lesion_mask.mean(dim=1)  # [b, h, w]
+                    mask_flat = rearrange(mask_flat, 'b h w -> b (h w)')  # [b, h*w]
+                    # Convert to binary class indices
+                    mask_flat = (mask_flat > 0.5).long()
                 else:
                     mask_flat = None
                 h_flat = block(h_flat, mask_flat)
@@ -298,13 +337,21 @@ class NeuralSynthUNet(nn.Module):
             else:
                 h = block(h)
         
-        for block in self.up_blocks:
+        # Process up blocks with skip connections
+        # Track if we just upsampled and need to concatenate skip
+        just_upsampled = True  # Start with True since we're coming from middle block
+        
+        for i, block in enumerate(self.up_blocks):
             if isinstance(block, ResidualBlock):
-                if skips:
+                # If we just upsampled (or starting), concatenate skip if available
+                if just_upsampled and skips:
                     h = torch.cat([h, skips.pop()], dim=1)
+                    just_upsampled = False
                 h = block(h, time_emb)
             else:
+                # This is an upsampling layer (ConvTranspose2d)
                 h = block(h)
+                just_upsampled = True
         
         return self.output_conv(h)
 
@@ -354,11 +401,24 @@ class NeuralSynthDiffusion(nn.Module):
             noise = torch.randn_like(x)
         
         if self.config.use_adaptive_noise:
-            betas_t = self.noise_scheduler(t)
-            alphas_t = 1 - betas_t
-            alphas_cumprod_t = torch.cumprod(alphas_t, dim=0)
-            sqrt_alphas_cumprod_t = torch.sqrt(alphas_cumprod_t)
-            sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1 - alphas_cumprod_t)
+            # For adaptive noise, calculate cumulative products dynamically
+            batch_size = t.shape[0]
+            sqrt_alphas_cumprod_t = []
+            sqrt_one_minus_alphas_cumprod_t = []
+            
+            for i in range(batch_size):
+                t_i = int(t[i].item())
+                # Get all betas up to timestep t_i
+                adaptive_factor = torch.sigmoid(self.noise_scheduler.learnable_beta[:t_i+1])
+                betas_up_to_t = self.noise_scheduler.base_beta[:t_i+1] * (1 + 0.1 * adaptive_factor)
+                alphas_up_to_t = 1 - betas_up_to_t
+                alpha_cumprod_t = torch.prod(alphas_up_to_t)
+                
+                sqrt_alphas_cumprod_t.append(torch.sqrt(alpha_cumprod_t))
+                sqrt_one_minus_alphas_cumprod_t.append(torch.sqrt(1 - alpha_cumprod_t))
+            
+            sqrt_alphas_cumprod_t = torch.stack(sqrt_alphas_cumprod_t).to(x.device).view(-1, 1, 1, 1)
+            sqrt_one_minus_alphas_cumprod_t = torch.stack(sqrt_one_minus_alphas_cumprod_t).to(x.device).view(-1, 1, 1, 1)
         else:
             sqrt_alphas_cumprod_t = torch.sqrt(self.alphas_cumprod[t])[:, None, None, None]
             sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1 - self.alphas_cumprod[t])[:, None, None, None]
