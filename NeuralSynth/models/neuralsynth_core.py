@@ -40,7 +40,8 @@ class AdaptiveNoiseScheduler(nn.Module):
     def __init__(self, num_timesteps: int = 1000):
         super().__init__()
         self.num_timesteps = num_timesteps
-        self.learnable_beta = nn.Parameter(torch.zeros(num_timesteps))
+        # Initialize learnable_beta with small values to start conservatively
+        self.learnable_beta = nn.Parameter(torch.zeros(num_timesteps) * 0.01)
         # Register base_beta as a buffer so it moves with the model
         self.register_buffer('base_beta', self._cosine_beta_schedule(num_timesteps))
         
@@ -371,6 +372,9 @@ class NeuralSynthDiffusion(nn.Module):
         self.model = NeuralSynthUNet(config)
         self.preserve_background = True  # Core feature from LeFusion
         
+        # Initialize model weights properly
+        self._initialize_weights()
+        
         if config.use_adaptive_noise:
             self.noise_scheduler = AdaptiveNoiseScheduler(config.num_timesteps)
         else:
@@ -411,8 +415,12 @@ class NeuralSynthDiffusion(nn.Module):
                 # Get all betas up to timestep t_i
                 adaptive_factor = torch.sigmoid(self.noise_scheduler.learnable_beta[:t_i+1])
                 betas_up_to_t = self.noise_scheduler.base_beta[:t_i+1] * (1 + 0.1 * adaptive_factor)
+                # Clamp betas to prevent numerical issues
+                betas_up_to_t = torch.clamp(betas_up_to_t, min=1e-4, max=0.999)
                 alphas_up_to_t = 1 - betas_up_to_t
                 alpha_cumprod_t = torch.prod(alphas_up_to_t)
+                # Clamp alpha_cumprod to prevent sqrt of negative or too small values
+                alpha_cumprod_t = torch.clamp(alpha_cumprod_t, min=1e-8, max=1.0)
                 
                 sqrt_alphas_cumprod_t.append(torch.sqrt(alpha_cumprod_t))
                 sqrt_one_minus_alphas_cumprod_t.append(torch.sqrt(1 - alpha_cumprod_t))
@@ -424,6 +432,23 @@ class NeuralSynthDiffusion(nn.Module):
             sqrt_one_minus_alphas_cumprod_t = torch.sqrt(1 - self.alphas_cumprod[t])[:, None, None, None]
         
         return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise, noise
+    
+    def _initialize_weights(self):
+        """Initialize model weights with proper scaling."""
+        for m in self.model.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.GroupNorm):
+                if m.weight is not None:
+                    nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
     
     def forward(self, x: torch.Tensor, lesion_mask: Optional[torch.Tensor] = None,
                 background: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:

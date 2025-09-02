@@ -118,9 +118,19 @@ class LIDCDataset(Dataset):
             # Create a dummy mask if no mask available
             mask = np.zeros_like(image)
         
-        # Normalize image to [-1, 1]
-        image = (image - image.min()) / (image.max() - image.min() + 1e-8)
-        image = 2 * image - 1
+        # Normalize image to [-1, 1] with safeguards
+        img_min, img_max = image.min(), image.max()
+        if img_max - img_min < 1e-8:
+            # Handle constant images
+            image = np.zeros_like(image)
+        else:
+            image = (image - img_min) / (img_max - img_min)
+            image = 2 * image - 1
+        
+        # Check for NaN or Inf
+        if np.any(np.isnan(image)) or np.any(np.isinf(image)):
+            print(f"Warning: NaN or Inf detected in image, replacing with zeros")
+            image = np.nan_to_num(image, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Binary mask
         mask = (mask > 0).astype(np.float32)
@@ -131,8 +141,17 @@ class LIDCDataset(Dataset):
             normal_idx = np.random.randint(0, len(self.normal_files))
             normal_path = self.normal_files[normal_idx]
             background = nib.load(str(normal_path)).get_fdata()
-            background = (background - background.min()) / (background.max() - background.min() + 1e-8)
-            background = 2 * background - 1
+            bg_min, bg_max = background.min(), background.max()
+            if bg_max - bg_min < 1e-8:
+                background = np.zeros_like(background)
+            else:
+                background = (background - bg_min) / (bg_max - bg_min)
+                background = 2 * background - 1
+            
+            # Check for NaN or Inf
+            if np.any(np.isnan(background)) or np.any(np.isinf(background)):
+                print(f"Warning: NaN or Inf detected in background, replacing with zeros")
+                background = np.nan_to_num(background, nan=0.0, posinf=1.0, neginf=-1.0)
         
         # Convert to tensors
         image = torch.from_numpy(image).float()
@@ -182,10 +201,25 @@ def train_epoch(model, dataloader, optimizer, criterion, device, epoch):
         # Compute loss
         loss = criterion(output['predicted_noise'], output['target_noise'], output['timesteps'])
         
+        # Check for NaN loss
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"Warning: NaN/Inf loss detected at batch {batch_idx}, skipping...")
+            optimizer.zero_grad()
+            continue
+        
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
+        # Clip gradients more aggressively
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        
+        # Skip update if gradients are too large
+        if grad_norm > 10.0:
+            print(f"Warning: Large gradient norm {grad_norm:.2f}, skipping update...")
+            optimizer.zero_grad()
+            continue
+            
         optimizer.step()
         
         # Update progress
