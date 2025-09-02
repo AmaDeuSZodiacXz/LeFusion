@@ -41,48 +41,66 @@ class LIDCDataset(Dataset):
         self.split = split
         self.transform = transform
         
-        # Get all .nii.gz files - also check for .nii files
-        self.image_files = sorted(list(self.data_dir.glob('**/*.nii.gz')) + 
-                                 list(self.data_dir.glob('**/*.nii')))
+        # LIDC data structure:
+        # Pathological/Image/LIDC-IDRI-XXXX/LIDC-IDRI-XXXX_Vol_000.nii.gz
+        # Pathological/Mask/LIDC-IDRI-XXXX/LIDC-IDRI-XXXX_Mask_000.nii.gz
         
-        # Filter for images and masks
-        self.image_files = [f for f in self.image_files if 'mask' not in f.name.lower()]
-        self.mask_files = [f for f in self.image_files if 'mask' in f.name.lower()]
+        image_dir = self.data_dir / 'Image'
+        mask_dir = self.data_dir / 'Mask'
         
-        # If no files found with above pattern, try alternative patterns
-        if len(self.image_files) == 0:
-            print(f"No image files found with standard pattern. Checking directory contents...")
-            all_files = list(self.data_dir.rglob('*'))
-            print(f"Found {len(all_files)} total files in {self.data_dir}")
-            # Try to find any nifti files
-            nifti_files = [f for f in all_files if f.suffix in ['.nii', '.gz']]
-            print(f"Found {len(nifti_files)} nifti files")
-            if len(nifti_files) > 0:
-                print(f"Sample files: {nifti_files[:3]}")
-            self.image_files = nifti_files
-            self.mask_files = []  # Will need to handle differently
+        if image_dir.exists() and mask_dir.exists():
+            # Get all image files
+            self.image_files = sorted(list(image_dir.glob('*/*.nii.gz')))
+            
+            # Get corresponding mask files
+            self.mask_files = []
+            for img_path in self.image_files:
+                # Extract patient ID from image path
+                patient_id = img_path.parent.name  # e.g., LIDC-IDRI-0001
+                # Find corresponding mask
+                mask_pattern = mask_dir / patient_id / f"{patient_id}_Mask_*.nii.gz"
+                mask_matches = list(mask_dir.glob(patient_id + f"/{patient_id}_Mask_*.nii.gz"))
+                if mask_matches:
+                    self.mask_files.append(mask_matches[0])
+                else:
+                    # If no mask found, use a dummy placeholder
+                    self.mask_files.append(None)
+        else:
+            # Fallback to old pattern
+            self.image_files = sorted(list(self.data_dir.glob('**/*Vol*.nii.gz')))
+            self.mask_files = sorted(list(self.data_dir.glob('**/*Mask*.nii.gz')))
+        
+        # Filter out entries without masks
+        valid_pairs = [(img, mask) for img, mask in zip(self.image_files, self.mask_files) if mask is not None]
+        if valid_pairs:
+            self.image_files, self.mask_files = zip(*valid_pairs)
+            self.image_files = list(self.image_files)
+            self.mask_files = list(self.mask_files)
         
         # Also check for normal cases (for background)
-        normal_dir = self.data_dir.parent / 'Normal'
+        normal_dir = self.data_dir.parent / 'Normal' / 'Image'
         self.normal_files = []
         if normal_dir.exists():
-            self.normal_files = sorted(list(normal_dir.glob('**/*image*.nii.gz')))
+            self.normal_files = sorted(list(normal_dir.glob('*.nii.gz')))
         
         print(f"Found {len(self.image_files)} pathological images")
         print(f"Found {len(self.mask_files)} masks")
         print(f"Found {len(self.normal_files)} normal images for background")
         
+        if len(self.image_files) == 0:
+            raise ValueError(f"No image files found in {self.data_dir}. Please check the data directory structure.")
+        
         if len(self.image_files) != len(self.mask_files):
             print("Warning: Number of images and masks don't match!")
         
         # Train/val split (80/20)
-        num_train = int(0.8 * len(self.image_files))
+        num_train = max(1, int(0.8 * len(self.image_files)))
         if split == 'train':
             self.image_files = self.image_files[:num_train]
-            self.mask_files = self.mask_files[:num_train]
+            self.mask_files = self.mask_files[:num_train] if self.mask_files else []
         else:
             self.image_files = self.image_files[num_train:]
-            self.mask_files = self.mask_files[num_train:]
+            self.mask_files = self.mask_files[num_train:] if self.mask_files else []
     
     def __len__(self):
         return len(self.image_files)
@@ -90,10 +108,15 @@ class LIDCDataset(Dataset):
     def __getitem__(self, idx):
         # Load pathological image and mask
         image_path = self.image_files[idx]
-        mask_path = self.mask_files[idx]
-        
         image = nib.load(str(image_path)).get_fdata()
-        mask = nib.load(str(mask_path)).get_fdata()
+        
+        # Load mask if available
+        if idx < len(self.mask_files):
+            mask_path = self.mask_files[idx]
+            mask = nib.load(str(mask_path)).get_fdata()
+        else:
+            # Create a dummy mask if no mask available
+            mask = np.zeros_like(image)
         
         # Normalize image to [-1, 1]
         image = (image - image.min()) / (image.max() - image.min() + 1e-8)
