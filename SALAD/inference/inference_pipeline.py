@@ -16,6 +16,10 @@ import nibabel as nib
 from dataclasses import dataclass
 
 # Import SALAD core components
+import sys
+from pathlib import Path
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from models.salad_core import NeuralSynthUNet, SALADConfig, AdaptiveNoiseScheduler
 
 
