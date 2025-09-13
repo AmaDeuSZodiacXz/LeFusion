@@ -1,0 +1,21 @@
+# SALAD Main Configuration
+project:
+  name: SALAD
+  version: 1.0.0
+  description: Stochastic Augmentation with Lesion-Aware Diffusion
+
+paths:
+  inference: ./inference
+  training: ./training
+  models: ./models
+  data: ./data
+  results: ./results
+  checkpoints: ./checkpoints
+
+inference:
+  default_config: ./inference/configs/inference_config.yaml
+  scripts: ./inference/scripts
+  
+training:
+  default_config: ./training/configs/training_config.yaml
+  scripts: ./training/scripts

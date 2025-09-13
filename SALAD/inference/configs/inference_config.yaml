@@ -1,0 +1,14 @@
+# SALAD Inference Configuration
+model:
+  checkpoint: ../checkpoints/salad_best.pt
+  device: cuda
+  
+sampling:
+  method: DDIM
+  steps: 50
+  batch_size: 8
+  guidance_scale: 1.0
+  
+output:
+  format: nifti
+  directory: ../results/synthesis

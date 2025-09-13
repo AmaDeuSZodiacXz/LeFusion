@@ -1,0 +1,50 @@
+# Ignore CLAUDE.md files
+CLAUDE.md
+**/CLAUDE.md
+
+# Ignore backup directories
+backup_*/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environment
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model weights (optional - uncomment if needed)
+# *.pt
+# *.ckpt
+# *.pth
+
+# Data files (optional - uncomment if needed)
+# *.nii.gz
+# *.nii
+# *.dcm
+
+# Temporary files
+*.tmp
+temp/
+tmp/
