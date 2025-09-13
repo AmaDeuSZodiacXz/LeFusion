@@ -72,11 +72,20 @@ class SALADInference:
         # Create model
         model = NeuralSynthUNet(model_config)
         
-        # Load weights
+        # Load weights - handle different checkpoint formats
         if 'model_state_dict' in checkpoint:
-            model.load_state_dict(checkpoint['model_state_dict'])
+            state_dict = checkpoint['model_state_dict']
+        elif 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
         else:
-            model.load_state_dict(checkpoint)
+            state_dict = checkpoint
+        
+        # Remove 'model.' prefix if present
+        if any(key.startswith('model.') for key in state_dict.keys()):
+            state_dict = {k.replace('model.', ''): v for k, v in state_dict.items() if k.startswith('model.')}
+        
+        # Load the state dict with strict=False to handle mismatches
+        model.load_state_dict(state_dict, strict=False)
         
         model.to(self.device)
         model.eval()
