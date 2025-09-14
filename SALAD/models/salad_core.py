@@ -211,8 +211,15 @@ class SALADUNet(nn.Module):
             nn.SiLU(),
             nn.Linear(time_emb_dim, time_emb_dim)
         )
-        
+
         self.lesion_embed = nn.Embedding(config.lesion_classes + 1, time_emb_dim)
+
+        # Histogram embedding (like LeFusion!)
+        self.hist_embed = nn.Sequential(
+            nn.Linear(16, config.model_channels),
+            nn.SiLU(),
+            nn.Linear(config.model_channels, time_emb_dim)
+        )
         
         if config.use_multi_scale:
             self.input_conv = MultiScaleFeatureExtractor(
@@ -281,11 +288,17 @@ class SALADUNet(nn.Module):
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
     
-    def forward(self, x: torch.Tensor, timesteps: torch.Tensor, 
-                lesion_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        
+    def forward(self, x: torch.Tensor, timesteps: torch.Tensor,
+                lesion_mask: Optional[torch.Tensor] = None,
+                histogram: Optional[torch.Tensor] = None) -> torch.Tensor:
+
         time_emb = self.timestep_embedding(timesteps, self.config.model_channels)
         time_emb = self.time_embed(time_emb)
+
+        # Add histogram conditioning if provided
+        if histogram is not None:
+            hist_emb = self.hist_embed(histogram)
+            time_emb = time_emb + hist_emb
         
         if lesion_mask is not None:
             # Convert mask to class index (assuming binary mask for now)

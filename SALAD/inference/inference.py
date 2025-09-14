@@ -24,11 +24,16 @@ from models.salad_core import SALADUNet, SALADConfig, AdaptiveNoiseScheduler
 
 class SALADInference:
     """SALAD inference pipeline for normal-to-pathological synthesis"""
-    
-    def __init__(self, checkpoint_path: str, device: str = "cuda"):
+
+    def __init__(self, checkpoint_path: str, device: str = "cuda", pathological_dir: str = None):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
         self.model = self._load_model(checkpoint_path)
         self.scheduler = AdaptiveNoiseScheduler(num_timesteps=1000).to(self.device)
+        self.pathological_dir = pathological_dir
+        self.pathological_masks = []
+        self.pathological_histograms = []
+        if pathological_dir:
+            self._load_pathological_data()
         
     def _load_model(self, checkpoint_path: str) -> nn.Module:
         """Load trained SALAD model"""
@@ -106,6 +111,77 @@ class SALADInference:
             # If no mask file, return empty mask (will generate random)
             return None
     
+    def _load_pathological_data(self):
+        """Load pathological masks and compute histograms"""
+        print(f"Loading pathological data from {self.pathological_dir}")
+        path_dir = Path(self.pathological_dir)
+
+        # Load pathological masks
+        mask_dir = path_dir / 'Pathological' / 'Mask' if (path_dir / 'Pathological').exists() else path_dir / 'Mask'
+        image_dir = path_dir / 'Pathological' / 'Image' if (path_dir / 'Pathological').exists() else path_dir / 'Image'
+
+        if mask_dir.exists() and image_dir.exists():
+            mask_files = list(mask_dir.glob('**/*.nii.gz'))[:50]  # Limit to 50
+
+            for mask_file in mask_files:
+                # Find corresponding image
+                img_name = mask_file.name.replace('_Mask_', '_Vol_').replace('CMask', 'CVol')
+                img_file = image_dir / mask_file.parent.name / img_name
+
+                if img_file.exists():
+                    # Load image and mask
+                    img = nib.load(img_file).get_fdata()
+                    mask = nib.load(mask_file).get_fdata()
+
+                    if img.ndim == 3:
+                        img = img[:, :, img.shape[2]//2]
+                        mask = mask[:, :, mask.shape[2]//2]
+
+                    # Normalize and compute histogram
+                    img = (img - img.min()) / (img.max() - img.min() + 1e-8) * 2 - 1
+                    mask = (mask > 0).astype(np.float32)
+
+                    # Extract histogram
+                    lesion_pixels = img[mask > 0]
+                    if len(lesion_pixels) > 0:
+                        hist, _ = np.histogram(lesion_pixels, bins=16, range=(-1, 1))
+                        hist = hist.astype(np.float32) / (hist.sum() + 1e-8)
+
+                        self.pathological_masks.append(mask)
+                        self.pathological_histograms.append(hist)
+
+            print(f"Loaded {len(self.pathological_masks)} pathological masks with histograms")
+
+    def get_pathological_mask_and_hist(self) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Get a random pathological mask and its histogram"""
+        if self.pathological_masks:
+            idx = np.random.randint(0, len(self.pathological_masks))
+            mask = self.pathological_masks[idx]
+            hist = self.pathological_histograms[idx]
+
+            # Resize mask to 256x256 if needed
+            if mask.shape != (256, 256):
+                from scipy.ndimage import zoom
+                zoom_factors = (256/mask.shape[0], 256/mask.shape[1])
+                mask = zoom(mask, zoom_factors, order=0)
+
+            mask_tensor = torch.from_numpy(mask).float().unsqueeze(0).unsqueeze(0).to(self.device)
+            hist_tensor = torch.from_numpy(hist).float().to(self.device)
+            return mask_tensor, hist_tensor
+        else:
+            # Fallback to simple mask
+            return self.generate_simple_mask(), torch.ones(16, device=self.device) / 16
+
+    def generate_simple_mask(self) -> torch.Tensor:
+        """Generate simple circular mask as fallback"""
+        mask = torch.zeros(1, 1, 256, 256, device=self.device)
+        cx, cy = 128, 128
+        radius = np.random.randint(20, 40)
+        y, x = np.ogrid[:256, :256]
+        circle = (x - cx)**2 + (y - cy)**2 <= radius**2
+        mask[0, 0][circle] = 1
+        return mask
+
     def generate_mask(self) -> torch.Tensor:
         """Generate random lesion mask (fallback if no mask provided)"""
         mask = torch.zeros(1, 1, 256, 256, device=self.device)
@@ -123,12 +199,12 @@ class SALADInference:
         return mask
     
     @torch.no_grad()
-    def synthesize(self, normal_image: torch.Tensor, mask: Optional[torch.Tensor] = None, 
-                  ddim_steps: int = 50) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Synthesize pathological from normal image using provided or generated mask"""
-        # Use provided mask or generate random one
-        if mask is None:
-            mask = self.generate_mask()
+    def synthesize(self, normal_image: torch.Tensor, mask: Optional[torch.Tensor] = None,
+                  histogram: Optional[torch.Tensor] = None, ddim_steps: int = 50) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Synthesize pathological from normal image using repaint technique (like LeFusion!)"""
+        # Use provided mask or get from pathological data
+        if mask is None or histogram is None:
+            mask, histogram = self.get_pathological_mask_and_hist()
         
         # DDIM sampling
         timesteps = torch.linspace(999, 0, ddim_steps, dtype=torch.long, device=self.device)
@@ -148,8 +224,8 @@ class SALADInference:
             # Combine lesion and background
             x_combined = x * mask + x_bg * (1 - mask)
             
-            # Predict noise
-            noise_pred = self.model(x_combined, t.unsqueeze(0), mask)
+            # Predict noise with histogram conditioning
+            noise_pred = self.model(x_combined, t.unsqueeze(0), mask, histogram.unsqueeze(0))
             
             # DDIM update
             alpha_next = alphas_cumprod[timesteps[i+1]] if i < len(timesteps)-1 else torch.tensor(1.0)
@@ -255,14 +331,16 @@ def main():
     parser = argparse.ArgumentParser(description="SALAD Inference Pipeline")
     parser.add_argument("--checkpoint", required=True, help="Model checkpoint path")
     parser.add_argument("--normal_dir", required=True, help="Normal images directory")
+    parser.add_argument("--pathological_dir", default="/Users/skb/Documents/LeFusion/data/LIDC",
+                       help="Pathological data directory for masks and histograms")
     parser.add_argument("--output_dir", default="results/synthesis", help="Output directory")
     parser.add_argument("--ddim_steps", type=int, default=50, help="DDIM steps (50=fast, 1000=quality)")
     parser.add_argument("--device", default="cuda", help="Device (cuda/cpu)")
-    
+
     args = parser.parse_args()
-    
-    # Initialize and run
-    inference = SALADInference(args.checkpoint, args.device)
+
+    # Initialize with pathological data
+    inference = SALADInference(args.checkpoint, args.device, args.pathological_dir)
     inference.process_directory(args.normal_dir, args.output_dir, args.ddim_steps)
 
 

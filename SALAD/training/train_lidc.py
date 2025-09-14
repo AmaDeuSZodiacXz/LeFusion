@@ -153,10 +153,19 @@ class LIDCDataset(Dataset):
                 print(f"Warning: NaN or Inf detected in background, replacing with zeros")
                 background = np.nan_to_num(background, nan=0.0, posinf=1.0, neginf=-1.0)
         
+        # Extract histogram from lesion region (like LeFusion!)
+        lesion_pixels = image[mask > 0]
+        if len(lesion_pixels) > 0:
+            hist, _ = np.histogram(lesion_pixels, bins=16, range=(-1, 1))
+            hist = hist.astype(np.float32) / (hist.sum() + 1e-8)
+        else:
+            hist = np.ones(16, dtype=np.float32) / 16
+
         # Convert to tensors
         image = torch.from_numpy(image).float()
         mask = torch.from_numpy(mask).float()
-        
+        hist = torch.from_numpy(hist).float()
+
         if background is not None:
             background = torch.from_numpy(background).float()
         else:
@@ -179,6 +188,7 @@ class LIDCDataset(Dataset):
             'image': image,
             'mask': mask,
             'background': background,
+            'histogram': hist,  # Added histogram conditioning!
             'path': str(image_path)
         }
 
