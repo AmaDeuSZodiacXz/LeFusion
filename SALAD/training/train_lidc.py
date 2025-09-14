@@ -193,50 +193,67 @@ class LIDCDataset(Dataset):
         }
 
 
-def train_epoch(model, dataloader, optimizer, criterion, device, epoch):
+def train_epoch(model, dataloader, optimizer, criterion, device, epoch, gradient_clip=1.0):
     """Train for one epoch."""
     model.train()
     total_loss = 0
     progress_bar = tqdm(dataloader, desc=f'Epoch {epoch}')
-    
+
+    skipped_updates = 0
+    successful_updates = 0
+
     for batch_idx, batch in enumerate(progress_bar):
         # Move to device
         image = batch['image'].to(device)
         mask = batch['mask'].to(device)
         background = batch['background'].to(device)
-        
+
         # Forward pass
         output = model(image, lesion_mask=mask, background=background)
-        
-        # Compute loss
+
+        # Compute loss with scaling to prevent gradient explosion
         loss = criterion(output['predicted_noise'], output['target_noise'], output['timesteps'])
-        
+        loss = loss * 0.1  # Scale down loss to prevent gradient explosion
+
         # Check for NaN loss
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"Warning: NaN/Inf loss detected at batch {batch_idx}, skipping...")
             optimizer.zero_grad()
+            skipped_updates += 1
             continue
-        
+
         # Backward pass
         optimizer.zero_grad()
         loss.backward()
-        
-        # Clip gradients more aggressively
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        
-        # Skip update if gradients are too large
-        if grad_norm > 10.0:
-            print(f"Warning: Large gradient norm {grad_norm:.2f}, skipping update...")
+
+        # Clip gradients - more aggressive clipping for initial training
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip)
+
+        # Log gradient norm periodically
+        if batch_idx % 100 == 0:
+            print(f"Batch {batch_idx}: grad_norm={grad_norm:.2f}, loss={loss.item()*10:.4f}")
+
+        # Only skip if gradient is truly exploding
+        if grad_norm > 100.0:
+            if batch_idx % 10 == 0:  # Only print every 10th warning to reduce spam
+                print(f"Warning: Large gradient norm {grad_norm:.2f}, skipping update...")
             optimizer.zero_grad()
+            skipped_updates += 1
             continue
-            
+
         optimizer.step()
+        successful_updates += 1
         
-        # Update progress
-        total_loss += loss.item()
+        # Update progress (multiply by 10 to show actual loss scale)
+        total_loss += loss.item() * 10
         avg_loss = total_loss / (batch_idx + 1)
-        progress_bar.set_postfix({'loss': f'{avg_loss:.4f}'})
-    
+        progress_bar.set_postfix({
+            'loss': f'{avg_loss:.4f}',
+            'grad': f'{grad_norm:.1f}',
+            'skip': f'{skipped_updates}/{batch_idx+1}'
+        })
+
+    print(f"\nEpoch {epoch} complete: {successful_updates} successful updates, {skipped_updates} skipped")
     return total_loss / len(dataloader)
 
 
@@ -297,6 +314,10 @@ def main():
                        help='Validation interval (epochs)')
     parser.add_argument('--save_interval', type=int, default=10,
                        help='Model save interval (epochs)')
+    parser.add_argument('--gradient_clip', type=float, default=1.0,
+                       help='Gradient clipping threshold')
+    parser.add_argument('--gradient_skip_threshold', type=float, default=100.0,
+                       help='Skip update if gradient norm exceeds this')
     
     # DDIM arguments
     parser.add_argument('--ddim_steps', type=int, default=50,
@@ -394,6 +415,20 @@ def main():
     # Create model
     model = SALADDiffusion(config).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    # Initialize model weights properly to prevent gradient explosion
+    def init_weights(m):
+        if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.Linear)):
+            nn.init.xavier_normal_(m.weight, gain=0.02)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm)):
+            if m.weight is not None:
+                nn.init.constant_(m.weight, 1)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+
+    model.apply(init_weights)
     
     # Create datasets
     train_dataset = LIDCDataset(args.data_dir, split='train')
@@ -415,22 +450,35 @@ def main():
         pin_memory=True
     )
     
-    # Create optimizer and criterion
+    # Create optimizer with lower learning rate to prevent gradient explosion
+    # Start with very low LR and increase if stable
+    initial_lr = args.learning_rate * 0.1  # Start with 1/10th of requested LR
     optimizer = optim.AdamW(
         model.parameters(),
-        lr=args.learning_rate,
+        lr=initial_lr,
         weight_decay=args.weight_decay,
-        betas=(0.9, 0.999)
+        betas=(0.9, 0.999),
+        eps=1e-8
     )
+    print(f"Starting with learning rate: {initial_lr}")
     
     criterion = DiffusionLoss(loss_type='l2', use_weighted=True)
     
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=args.epochs,
-        eta_min=1e-6
-    )
+    # Learning rate scheduler with warmup
+    # Use warmup to gradually increase LR and prevent initial explosion
+    warmup_epochs = min(5, args.epochs // 10)
+
+    def warmup_lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            # Linear warmup from 0.1 to 1.0
+            return 0.1 + 0.9 * (epoch / warmup_epochs)
+        else:
+            # Cosine annealing after warmup
+            progress = (epoch - warmup_epochs) / (args.epochs - warmup_epochs)
+            return 0.5 * (1.0 + np.cos(np.pi * progress))
+
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lr_lambda)
+    print(f"Using {warmup_epochs} warmup epochs")
     
     # Resume from checkpoint if requested
     start_epoch = 0
@@ -453,9 +501,21 @@ def main():
     
     # Training loop
     print("\nStarting training...")
+
+    # Start with aggressive gradient clipping, then relax as training stabilizes
     for epoch in range(start_epoch, args.epochs):
+        # Adaptive gradient clipping - start strict, relax over time
+        if epoch < warmup_epochs:
+            gradient_clip = 0.1  # Very strict during warmup
+        elif epoch < 10:
+            gradient_clip = 0.5  # Still strict early on
+        elif epoch < 20:
+            gradient_clip = 1.0  # Normal clipping
+        else:
+            gradient_clip = 5.0  # Relaxed clipping
+
         # Train
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, epoch)
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, epoch, gradient_clip)
         writer.add_scalar('Loss/train', train_loss, epoch)
         
         # Validate
