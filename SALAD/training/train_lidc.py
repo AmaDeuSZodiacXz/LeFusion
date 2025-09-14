@@ -9,6 +9,7 @@ import os
 import sys
 import argparse
 import json
+import yaml
 from pathlib import Path
 from datetime import datetime
 
@@ -284,7 +285,7 @@ def main():
                        help='Path to config file (JSON or YAML)')
 
     # Data arguments
-    parser.add_argument('--data_dir', type=str, default=None,
+    parser.add_argument('--data_dir', type=str, default='../data/LIDC/Pathological',
                        help='Path to LIDC pathological data (relative or absolute)')
     parser.add_argument('--output_dir', type=str, default='checkpoints/lidc',
                        help='Output directory for checkpoints')
@@ -343,16 +344,23 @@ def main():
 
         if config_path.exists():
             print(f"Loading config from: {config_path}")
+
+            # Load config based on file extension
             if config_path.suffix == '.json':
                 with open(config_path, 'r') as f:
                     config = json.load(f)
+            elif config_path.suffix in ['.yaml', '.yml']:
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+            else:
+                raise ValueError(f"Unsupported config file format: {config_path.suffix}")
 
-                # Override args with config values
-                for section in ['data', 'training', 'output', 'hardware', 'model']:
-                    if section in config:
-                        for key, value in config[section].items():
-                            if hasattr(args, key):
-                                setattr(args, key, value)
+            # Override args with config values
+            for section in ['data', 'training', 'output', 'hardware', 'model']:
+                if section in config:
+                    for key, value in config[section].items():
+                        if hasattr(args, key):
+                            setattr(args, key, value)
 
     # Handle relative paths - make them relative to SALAD directory
     salad_dir = Path(__file__).parent.parent
