@@ -16,15 +16,32 @@ from tqdm import tqdm
 def extract_histograms(data_dir: str, max_samples: int = 500):
     """Extract histograms from pathological images"""
     data_dir = Path(data_dir)
-    image_dir = data_dir / "Image"
-    mask_dir = data_dir / "Mask"
+
+    # Check directory structure
+    if (data_dir / "Image").exists() and (data_dir / "Mask").exists():
+        image_dir = data_dir / "Image"
+        mask_dir = data_dir / "Mask"
+    elif (data_dir / "Pathological" / "Image").exists():
+        # Handle nested structure
+        image_dir = data_dir / "Pathological" / "Image"
+        mask_dir = data_dir / "Pathological" / "Mask"
+    else:
+        print(f"Error: Cannot find Image and Mask directories in {data_dir}")
+        print(f"Available directories: {list(data_dir.iterdir())}")
+        return []
 
     histograms = []
 
     # Find all mask files
     mask_files = sorted(mask_dir.glob("*.nii.gz"))[:max_samples]
 
-    print(f"Extracting histograms from {len(mask_files)} samples...")
+    if not mask_files:
+        print(f"No mask files found in {mask_dir}")
+        print(f"Contents: {list(mask_dir.iterdir())[:5]}")
+        return []
+
+    print(f"Found {len(mask_files)} mask files in {mask_dir}")
+    print(f"Extracting histograms from up to {max_samples} samples...")
     for mask_file in tqdm(mask_files):
         # Find corresponding image
         image_name = mask_file.name.replace("Mask_", "Vol_")
@@ -79,10 +96,19 @@ def cluster_histograms(histograms: np.ndarray, n_clusters: int = 3):
 
 def main():
     import argparse
+
+    # Auto-detect if running in Colab
+    if os.path.exists("/content/LeFusion"):
+        default_data_dir = "/content/LeFusion/data/LIDC/Pathological"
+        default_output_dir = "/content/LeFusion/SALAD/inference/hist_clusters"
+    else:
+        default_data_dir = "../data/LIDC/Pathological"
+        default_output_dir = "inference/hist_clusters"
+
     parser = argparse.ArgumentParser(description="Extract histogram clusters from pathological data")
-    parser.add_argument("--data_dir", type=str, default="../data/LIDC/Pathological",
+    parser.add_argument("--data_dir", type=str, default=default_data_dir,
                        help="Path to pathological data directory")
-    parser.add_argument("--output_dir", type=str, default="inference/hist_clusters",
+    parser.add_argument("--output_dir", type=str, default=default_output_dir,
                        help="Output directory for cluster files")
     parser.add_argument("--dataset", type=str, default="lidc", choices=["lidc", "emidec"],
                        help="Dataset name")
