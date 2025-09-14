@@ -32,8 +32,8 @@ def extract_histograms(data_dir: str, max_samples: int = 500):
 
     histograms = []
 
-    # Find all mask files
-    mask_files = sorted(mask_dir.glob("*.nii.gz"))[:max_samples]
+    # Find all mask files in subdirectories
+    mask_files = sorted(mask_dir.glob("**/*.nii.gz"))[:max_samples]
 
     if not mask_files:
         print(f"No mask files found in {mask_dir}")
@@ -43,9 +43,16 @@ def extract_histograms(data_dir: str, max_samples: int = 500):
     print(f"Found {len(mask_files)} mask files in {mask_dir}")
     print(f"Extracting histograms from up to {max_samples} samples...")
     for mask_file in tqdm(mask_files):
-        # Find corresponding image
-        image_name = mask_file.name.replace("Mask_", "Vol_")
-        image_file = image_dir / image_name
+        # Extract patient ID and volume number from mask filename
+        # Format: LIDC-IDRI-XXXX/LIDC-IDRI-XXXX_Mask_YYY.nii.gz
+        patient_id = mask_file.parent.name  # e.g., LIDC-IDRI-0001
+        mask_name = mask_file.name  # e.g., LIDC-IDRI-0001_Mask_000.nii.gz
+
+        # Convert mask name to image name
+        image_name = mask_name.replace("_Mask_", "_Vol_")
+
+        # Find corresponding image in the same patient folder
+        image_file = image_dir / patient_id / image_name
 
         if not image_file.exists():
             continue
