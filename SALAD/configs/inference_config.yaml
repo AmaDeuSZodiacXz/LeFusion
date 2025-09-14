@@ -1,0 +1,32 @@
+# SALAD Inference Configuration
+
+# Data settings
+data:
+  normal_dir: "../data/LIDC/Normal"        # Normal images for background
+  pathological_dir: "../data/LIDC/Pathological"  # For masks and histograms
+  output_dir: "results/synthesis"
+
+# Model settings
+model:
+  checkpoint: "checkpoints/lidc_fixed/checkpoint_step_50000.pth"
+  device: "cuda"
+
+# Sampling settings
+sampling:
+  ddim_steps: 50          # Fast sampling (50 vs LeFusion's 1000)
+  num_samples: 100        # Number of synthetic images to generate
+  batch_size: 4
+  guidance_scale: 1.0
+
+# Repaint settings (for background preservation)
+repaint:
+  enabled: true           # Use repaint technique like LeFusion
+  jump_length: 5
+  jump_n_sample: 5
+
+# Output settings
+output:
+  save_images: true
+  save_masks: true
+  save_format: "nifti"    # nifti or png
+  visualization: true     # Create visualization grids
