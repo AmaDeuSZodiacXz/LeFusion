@@ -32,12 +32,17 @@ class SALADInference:
         self.model = self._load_model(checkpoint_path)
         self.scheduler = AdaptiveNoiseScheduler(num_timesteps=1000).to(self.device)
 
-        # Load test cases (like LeFusion)
-        self.test_cases = []
+        # Load test cases to EXCLUDE (like LeFusion!)
+        # test.txt contains pathological cases that should NOT be used for generation
+        self.excluded_cases = set()
         if test_txt_path and Path(test_txt_path).exists():
             with open(test_txt_path, 'r') as f:
-                self.test_cases = [line.strip() for line in f.readlines()]
-            print(f"Loaded {len(self.test_cases)} test cases")
+                for line in f:
+                    # Remove extension and keep base name
+                    case_name = line.strip()
+                    if case_name:
+                        self.excluded_cases.add(case_name)
+            print(f"Loaded {len(self.excluded_cases)} cases to exclude from normal images")
 
         # Default histogram clusters for 3 lesion types (like LeFusion)
         self.histogram_clusters = self._get_default_clusters()
@@ -297,23 +302,33 @@ class SALADInference:
             normal_image_dir = normal_dir
             normal_mask_dir = None
         
-        # Find images based on test cases or all
-        if self.test_cases:
-            # Process only test cases (like LeFusion)
-            print(f"Processing {len(self.test_cases)} test cases from test.txt...")
-            image_files = []
-            for case_name in self.test_cases:
-                # Try to find matching normal image
-                img_path = normal_image_dir / f"{case_name}.nii.gz"
-                if img_path.exists():
-                    image_files.append(img_path)
-                else:
-                    print(f"  Warning: Test case {case_name} not found in normal images")
+        # Find all normal images EXCLUDING test cases (like LeFusion!)
+        all_image_files = []
+
+        # Handle both direct files and subdirectory structure
+        if list(normal_image_dir.glob("*.nii.gz")):
+            # Files directly in normal_image_dir
+            all_image_files = list(normal_image_dir.glob("*.nii.gz"))
         else:
-            # Process all normal images
-            image_files = []
-            for ext in ['*.nii.gz', '*.nii', '*.npy']:
-                image_files.extend(normal_image_dir.glob(ext))
+            # Files in subdirectories (e.g., Normal/Image/LIDC-IDRI-XXXX/*.nii.gz)
+            all_image_files = list(normal_image_dir.glob("**/*.nii.gz"))
+
+        # Filter out test cases
+        image_files = []
+        excluded_count = 0
+        for img_path in all_image_files:
+            # Get base name without extension
+            base_name = img_path.stem.replace('.nii', '')
+
+            # Check if this is a test case that should be excluded
+            if base_name in self.excluded_cases:
+                excluded_count += 1
+            else:
+                image_files.append(img_path)
+
+        if self.excluded_cases:
+            print(f"Found {len(all_image_files)} normal images, excluded {excluded_count} test cases")
+            print(f"Processing {len(image_files)} normal images for synthesis...")
         
         if not image_files:
             raise ValueError(f"No images found in {normal_dir}")
