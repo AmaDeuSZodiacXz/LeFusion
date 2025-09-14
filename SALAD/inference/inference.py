@@ -15,6 +15,8 @@ import argparse
 from tqdm import tqdm
 import nibabel as nib
 from PIL import Image
+import yaml
+import json
 
 # Add parent directory (SALAD) to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -329,15 +331,91 @@ class SALADInference:
 
 def main():
     parser = argparse.ArgumentParser(description="SALAD Inference Pipeline")
-    parser.add_argument("--checkpoint", required=True, help="Model checkpoint path")
-    parser.add_argument("--normal_dir", required=True, help="Normal images directory")
-    parser.add_argument("--pathological_dir", default="/Users/skb/Documents/LeFusion/data/LIDC",
-                       help="Pathological data directory for masks and histograms")
-    parser.add_argument("--output_dir", default="results/synthesis", help="Output directory")
-    parser.add_argument("--ddim_steps", type=int, default=50, help="DDIM steps (50=fast, 1000=quality)")
-    parser.add_argument("--device", default="cuda", help="Device (cuda/cpu)")
+
+    # Config file support
+    parser.add_argument("--config", help="Path to config file (YAML or JSON)")
+
+    # Individual arguments (override config if provided)
+    parser.add_argument("--checkpoint", help="Model checkpoint path")
+    parser.add_argument("--normal_dir", help="Normal images directory")
+    parser.add_argument("--pathological_dir", help="Pathological data directory for masks and histograms")
+    parser.add_argument("--output_dir", help="Output directory")
+    parser.add_argument("--ddim_steps", type=int, help="DDIM steps (50=fast, 1000=quality)")
+    parser.add_argument("--num_samples", type=int, help="Number of samples to generate")
+    parser.add_argument("--device", help="Device (cuda/cpu)")
 
     args = parser.parse_args()
+
+    # Load config if provided
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.is_absolute():
+            # Make relative to SALAD directory
+            config_path = Path(__file__).parent.parent / config_path
+
+        if config_path.exists():
+            print(f"Loading config from: {config_path}")
+            if config_path.suffix == '.yaml' or config_path.suffix == '.yml':
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+            elif config_path.suffix == '.json':
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+            else:
+                raise ValueError(f"Unsupported config format: {config_path.suffix}")
+
+            # Set defaults from config
+            if not args.checkpoint and 'model' in config:
+                args.checkpoint = config['model'].get('checkpoint')
+            if not args.normal_dir and 'data' in config:
+                args.normal_dir = config['data'].get('normal_dir')
+            if not args.pathological_dir and 'data' in config:
+                args.pathological_dir = config['data'].get('pathological_dir')
+            if not args.output_dir and 'data' in config:
+                args.output_dir = config['data'].get('output_dir')
+            if not args.ddim_steps and 'sampling' in config:
+                args.ddim_steps = config['sampling'].get('ddim_steps', 50)
+            if not args.num_samples and 'sampling' in config:
+                args.num_samples = config['sampling'].get('num_samples', 100)
+            if not args.device and 'model' in config:
+                args.device = config['model'].get('device', 'cuda')
+        else:
+            print(f"Warning: Config file not found: {config_path}")
+
+    # Set defaults if not provided
+    args.checkpoint = args.checkpoint or "checkpoints/lidc_fixed/checkpoint_latest.pth"
+    args.normal_dir = args.normal_dir or "../data/LIDC/Normal"
+    args.pathological_dir = args.pathological_dir or "../data/LIDC/Pathological"
+    args.output_dir = args.output_dir or "results/synthesis"
+    args.ddim_steps = args.ddim_steps or 50
+    args.num_samples = getattr(args, 'num_samples', 100)
+    args.device = args.device or "cuda"
+
+    # Handle relative paths
+    salad_dir = Path(__file__).parent.parent
+
+    # Make paths absolute if relative
+    if not Path(args.checkpoint).is_absolute():
+        args.checkpoint = str((salad_dir / args.checkpoint).resolve())
+    if not Path(args.normal_dir).is_absolute():
+        args.normal_dir = str((salad_dir / args.normal_dir).resolve())
+    if not Path(args.pathological_dir).is_absolute():
+        args.pathological_dir = str((salad_dir / args.pathological_dir).resolve())
+    if not Path(args.output_dir).is_absolute():
+        args.output_dir = str((salad_dir / args.output_dir).resolve())
+
+    # Print configuration
+    print("=" * 60)
+    print("SALAD Inference Configuration")
+    print("=" * 60)
+    print(f"Checkpoint: {args.checkpoint}")
+    print(f"Normal dir: {args.normal_dir}")
+    print(f"Pathological dir: {args.pathological_dir}")
+    print(f"Output dir: {args.output_dir}")
+    print(f"DDIM steps: {args.ddim_steps}")
+    print(f"Num samples: {args.num_samples}")
+    print(f"Device: {args.device}")
+    print("=" * 60)
 
     # Initialize with pathological data
     inference = SALADInference(args.checkpoint, args.device, args.pathological_dir)

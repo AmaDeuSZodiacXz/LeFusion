@@ -8,7 +8,7 @@ data:
 
 # Model settings
 model:
-  checkpoint: "checkpoints/lidc_fixed/checkpoint_step_50000.pth"
+  checkpoint: "checkpoints/lidc_fixed/checkpoint_latest.pth"  # Use latest from training
   device: "cuda"
 
 # Sampling settings
