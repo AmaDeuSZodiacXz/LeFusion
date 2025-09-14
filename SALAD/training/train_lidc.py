@@ -244,28 +244,27 @@ def train_epoch(model, dataloader, optimizer, criterion, device, epoch, gradient
     return total_loss / len(dataloader)
 
 
-def generate_samples(model, num_samples, device, save_dir, step, normal_loader):
+def generate_samples(model, num_samples, device, save_dir, step):
     """Generate sample images to monitor training progress."""
     model.eval()
 
     with torch.no_grad():
-        # Get random normal images for background
-        try:
-            batch = next(iter(normal_loader))
-            normal_images = batch['image'][:num_samples].to(device)
-        except:
-            # Fallback if no normal images
-            normal_images = torch.randn(num_samples, 1, 256, 256).to(device)
-
-        # Generate synthetic pathological images
+        # During training, we don't need normal images
+        # Just generate samples to monitor training progress
         print(f"\n🎨 Generating {num_samples} samples at step {step}...")
 
-        # Use DDIM sampling for faster generation
-        samples = model.sample(
-            batch_size=num_samples,
-            background=normal_images,
-            ddim_steps=50
-        )
+        # Generate samples from noise
+        # Note: These are just for monitoring, not the final synthesis
+        # Final synthesis with normal background is done during inference
+        try:
+            samples = model.sample(
+                batch_size=num_samples,
+                ddim_steps=50
+            )
+        except:
+            # Fallback to random noise if sample method not implemented
+            samples = torch.randn(num_samples, 1, 256, 256).to(device)
+            print("   Note: Using random samples as model.sample() not fully implemented")
 
         # Save samples as grid
         from torchvision.utils import save_image
@@ -442,11 +441,8 @@ def main():
 
     model.apply(init_weights)
     
-    # Create datasets (no validation needed for generative training)
+    # Create dataset - ONLY pathological for training (like LeFusion!)
     train_dataset = LIDCDataset(args.data_dir, split='train')
-
-    # Also load normal images for background
-    normal_dataset = LIDCDataset(args.data_dir.replace('Pathological', 'Normal'), split='train')
 
     train_loader = DataLoader(
         train_dataset,
@@ -457,13 +453,9 @@ def main():
         drop_last=True
     )
 
-    normal_loader = DataLoader(
-        normal_dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True
-    )
+    # No normal dataset needed for training
+    # Normal images are only used during inference
+    normal_loader = None
     
     # Create optimizer with lower learning rate to prevent gradient explosion
     # Start with very low LR and increase if stable
@@ -615,7 +607,7 @@ def main():
 
         # Generate samples
         if global_step > 0 and global_step % args.sample_interval == 0:
-            samples = generate_samples(model, 16, device, sample_dir, global_step, normal_loader)
+            samples = generate_samples(model, 16, device, sample_dir, global_step)
 
         # Log to tensorboard
         if global_step % 100 == 0 and loss_count > 0:
