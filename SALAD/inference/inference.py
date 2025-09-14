@@ -119,15 +119,27 @@ class SALADInference:
             return None
     
     def _get_default_clusters(self):
-        """Get default histogram clusters for 3 lesion types (like LeFusion)"""
-        return np.array([
-            # Type 0: Dark lesion (low intensity)
-            np.array([0.4, 0.3, 0.2, 0.1] + [0]*12),
-            # Type 1: Bright lesion (high intensity)
-            np.array([0.1, 0.2, 0.3, 0.4] + [0]*12),
-            # Type 2: Mixed intensity lesion
-            np.array([0.25]*4 + [0]*12)
-        ], dtype=np.float32)
+        """Load histogram clusters from file or use defaults"""
+        # Try to load pre-computed clusters (like LeFusion)
+        cluster_file = Path(__file__).parent / "hist_clusters" / "lidc_clusters.json"
+
+        if cluster_file.exists():
+            print(f"Loading histogram clusters from {cluster_file}")
+            with open(cluster_file, 'r') as f:
+                data = json.load(f)
+                return np.array(data[0]['centers'], dtype=np.float32)
+        else:
+            print("Warning: No histogram clusters found, using defaults")
+            print("Run: python utils/extract_histogram_clusters.py to generate clusters")
+            # Fallback to default clusters
+            return np.array([
+                # Type 0: Dark lesion
+                np.array([0.4, 0.3, 0.2, 0.1] + [0]*12),
+                # Type 1: Bright lesion
+                np.array([0.1, 0.2, 0.3, 0.4] + [0]*12),
+                # Type 2: Mixed lesion
+                np.array([0.25]*4 + [0]*12)
+            ], dtype=np.float32)
 
     def generate_synthetic_mask(self, image_shape: tuple = (256, 256)) -> torch.Tensor:
         """Generate synthetic lesion mask (like LeFusion/DiffMask)"""
@@ -196,9 +208,19 @@ class SALADInference:
             lesion_type = np.random.randint(0, 3)
         histogram = self.get_histogram_for_type(lesion_type)
         
-        # DDIM sampling
+        # DDIM sampling with adaptive noise (matching training)
         timesteps = torch.linspace(999, 0, ddim_steps, dtype=torch.long, device=self.device)
-        betas = self.scheduler(torch.arange(1000, device=self.device))
+
+        # Use adaptive noise scheduler if available
+        if hasattr(self.scheduler, 'learnable_beta'):
+            # Get adaptive betas (matching training)
+            all_timesteps = torch.arange(1000, device=self.device)
+            betas = self.scheduler(all_timesteps)
+        else:
+            # Fallback to standard schedule
+            betas = self.scheduler.base_beta if hasattr(self.scheduler, 'base_beta') else \
+                    torch.linspace(0.0001, 0.02, 1000, device=self.device)
+
         alphas = 1 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
         
@@ -214,8 +236,10 @@ class SALADInference:
             # Combine lesion and background
             x_combined = x * mask + x_bg * (1 - mask)
             
-            # Predict noise with histogram conditioning
-            noise_pred = self.model(x_combined, t.unsqueeze(0), mask, histogram.unsqueeze(0))
+            # Predict noise with histogram conditioning (matching training)
+            # Model expects timesteps not t
+            timestep_tensor = t.unsqueeze(0) if t.dim() == 0 else t
+            noise_pred = self.model(x_combined, timestep_tensor, mask, histogram.unsqueeze(0))
             
             # DDIM update
             alpha_next = alphas_cumprod[timesteps[i+1]] if i < len(timesteps)-1 else torch.tensor(1.0)
