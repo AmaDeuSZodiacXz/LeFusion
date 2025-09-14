@@ -261,11 +261,15 @@ def validate(model, dataloader, criterion, device):
 
 def main():
     parser = argparse.ArgumentParser(description='Train SALAD on LIDC dataset')
-    
+
+    # Config file support
+    parser.add_argument('--config', type=str, default=None,
+                       help='Path to config file (JSON or YAML)')
+
     # Data arguments
-    parser.add_argument('--data_dir', type=str, required=True,
-                       help='Path to LIDC pathological data')
-    parser.add_argument('--output_dir', type=str, default='../checkpoints/lidc',
+    parser.add_argument('--data_dir', type=str, default=None,
+                       help='Path to LIDC pathological data (relative or absolute)')
+    parser.add_argument('--output_dir', type=str, default='checkpoints/lidc',
                        help='Output directory for checkpoints')
     
     # Model arguments
@@ -309,9 +313,44 @@ def main():
                        help='Path to checkpoint to resume from')
     
     args = parser.parse_args()
-    
-    # Create output directory
-    output_dir = Path(args.output_dir)
+
+    # Load config if provided
+    if args.config:
+        config_path = Path(args.config)
+        if not config_path.is_absolute():
+            config_path = Path(__file__).parent.parent / config_path
+
+        if config_path.exists():
+            print(f"Loading config from: {config_path}")
+            if config_path.suffix == '.json':
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+
+                # Override args with config values
+                for section in ['data', 'training', 'output', 'hardware', 'model']:
+                    if section in config:
+                        for key, value in config[section].items():
+                            if hasattr(args, key):
+                                setattr(args, key, value)
+
+    # Handle relative paths - make them relative to SALAD directory
+    salad_dir = Path(__file__).parent.parent
+
+    # Fix data_dir path
+    if args.data_dir:
+        data_path = Path(args.data_dir)
+        if not data_path.is_absolute():
+            data_path = salad_dir / data_path
+        args.data_dir = str(data_path.resolve())
+    else:
+        # Default path
+        args.data_dir = str((salad_dir / '../data/LIDC/Pathological').resolve())
+
+    # Fix output_dir path
+    output_path = Path(args.output_dir)
+    if not output_path.is_absolute():
+        output_path = salad_dir / output_path
+    output_dir = output_path
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Save configuration

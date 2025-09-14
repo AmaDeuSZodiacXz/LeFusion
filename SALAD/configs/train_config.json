@@ -1,0 +1,40 @@
+{
+    "data": {
+        "dataset": "lidc",
+        "data_dir": "../data/LIDC/Pathological",
+        "normal_dir": "../data/LIDC/Normal",
+        "image_size": 256,
+        "num_workers": 4
+    },
+    "model": {
+        "in_channels": 1,
+        "out_channels": 1,
+        "model_channels": 128,
+        "num_res_blocks": 3,
+        "attention_resolutions": [16, 8],
+        "dropout": 0.1,
+        "channel_mult": [1, 2, 4, 8],
+        "num_heads": 8,
+        "num_timesteps": 1000,
+        "use_adaptive_noise": true,
+        "use_multi_scale": true,
+        "use_lesion_attention": true,
+        "use_histogram": true
+    },
+    "training": {
+        "batch_size": 4,
+        "epochs": 100,
+        "learning_rate": 0.0001,
+        "save_interval": 20,
+        "val_interval": 5,
+        "gradient_clip": 1.0
+    },
+    "output": {
+        "output_dir": "checkpoints/lidc_fixed",
+        "log_dir": "logs/lidc_fixed",
+        "resume": null
+    },
+    "hardware": {
+        "device": "cuda"
+    }
+}

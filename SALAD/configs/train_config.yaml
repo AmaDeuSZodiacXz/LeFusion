@@ -1,0 +1,67 @@
+# SALAD Training Configuration
+
+# Data settings
+data:
+  dataset: "lidc"  # Options: lidc, emidec
+  data_dir: "../data/LIDC/Pathological"  # Relative path from SALAD directory
+  normal_dir: "../data/LIDC/Normal"      # For background images
+  image_size: 256
+  num_workers: 4
+  augmentation: true
+
+# Model settings
+model:
+  type: "salad"
+  in_channels: 1
+  out_channels: 1
+  model_channels: 128
+  num_res_blocks: 3
+  attention_resolutions: [16, 8]
+  dropout: 0.1
+  channel_mult: [1, 2, 4, 8]
+  num_heads: 8
+  use_scale_shift_norm: true
+  resblock_updown: true
+  use_new_attention_order: true
+  num_timesteps: 1000
+  beta_schedule: "cosine"
+  lesion_classes: 5
+
+  # SALAD specific features
+  use_adaptive_noise: true      # Adaptive noise scheduling
+  use_multi_scale: true         # Multi-scale feature extraction
+  use_lesion_attention: true    # Lesion-aware attention
+  use_histogram: true           # Histogram conditioning
+
+# Training settings
+training:
+  batch_size: 4
+  epochs: 100
+  learning_rate: 1e-4
+  lr_scheduler: "cosine"
+  warmup_epochs: 5
+  gradient_clip: 1.0
+  ema_decay: 0.995
+  save_interval: 20
+  val_interval: 5
+  num_samples: 4
+  mixed_precision: false
+
+# Output settings
+output:
+  output_dir: "checkpoints/lidc_fixed"
+  log_dir: "logs/lidc_fixed"
+  sample_dir: "samples/lidc_fixed"
+  resume: null  # Path to checkpoint to resume from
+
+# Hardware settings
+hardware:
+  device: "cuda"  # Will fallback to cpu if cuda not available
+  num_gpus: 1
+  distributed: false
+
+# Inference settings (for validation)
+inference:
+  ddim_steps: 50
+  num_samples: 10
+  guidance_scale: 1.0
