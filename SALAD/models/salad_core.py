@@ -464,13 +464,15 @@ class SALADDiffusion(nn.Module):
                     nn.init.constant_(m.bias, 0)
     
     def forward(self, x: torch.Tensor, lesion_mask: Optional[torch.Tensor] = None,
-                background: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
-        """Forward pass with background preservation.
-        
+                background: Optional[torch.Tensor] = None,
+                histogram: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
+        """Forward pass with background preservation and histogram conditioning.
+
         Following LeFusion's approach:
         - x: Full image with lesion
         - background: Clean background without lesion (for preservation)
         - lesion_mask: Binary mask indicating lesion region
+        - histogram: 16-bin histogram of lesion intensities (LeFusion's key innovation!)
         """
         batch_size = x.shape[0]
         t = torch.randint(0, self.config.num_timesteps, (batch_size,), device=x.device).long()
@@ -493,14 +495,15 @@ class SALADDiffusion(nn.Module):
             x_combined = x_combined * mask_smooth + background_noisy * (1 - mask_smooth)
             
             # Model predicts only lesion noise (focused learning)
-            predicted_noise = self.model(x_combined, t, lesion_mask)
-            
+            # Pass histogram for conditioning (like LeFusion!)
+            predicted_noise = self.model(x_combined, t, lesion_mask, histogram)
+
             # Loss computed only on lesion region (like LeFusion)
             target_noise = lesion_noise * lesion_mask
         else:
             # Standard diffusion without background preservation
             x_noisy, noise = self.forward_diffusion(x, t)
-            predicted_noise = self.model(x_noisy, t, lesion_mask)
+            predicted_noise = self.model(x_noisy, t, lesion_mask, histogram)
             target_noise = noise
         
         return {

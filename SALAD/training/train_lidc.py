@@ -561,7 +561,7 @@ def main():
         if histogram is not None:
             histogram = histogram.to(device)
 
-        # Forward pass
+        # Forward pass with histogram conditioning (like LeFusion!)
         output = model(image, lesion_mask=mask, background=background, histogram=histogram)
         loss = criterion(output['predicted_noise'], output['target_noise'], output['timesteps'])
         loss = loss * 0.1  # Scale down loss
