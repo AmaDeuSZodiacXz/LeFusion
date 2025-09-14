@@ -136,23 +136,11 @@ class LIDCDataset(Dataset):
         # Binary mask
         mask = (mask > 0).astype(np.float32)
         
-        # Get random normal image for background if available
-        background = None
-        if len(self.normal_files) > 0:
-            normal_idx = np.random.randint(0, len(self.normal_files))
-            normal_path = self.normal_files[normal_idx]
-            background = nib.load(str(normal_path)).get_fdata()
-            bg_min, bg_max = background.min(), background.max()
-            if bg_max - bg_min < 1e-8:
-                background = np.zeros_like(background)
-            else:
-                background = (background - bg_min) / (bg_max - bg_min)
-                background = 2 * background - 1
-            
-            # Check for NaN or Inf
-            if np.any(np.isnan(background)) or np.any(np.isinf(background)):
-                print(f"Warning: NaN or Inf detected in background, replacing with zeros")
-                background = np.nan_to_num(background, nan=0.0, posinf=1.0, neginf=-1.0)
+        # IMPORTANT: Following LeFusion's approach
+        # During TRAINING: We do NOT use normal images!
+        # LeFusion trains ONLY on pathological images
+        # Normal images are used ONLY during INFERENCE for the repaint technique
+        # Reference: lidc_train.sh line 7: dataset_root_dir=data/LIDC/Pathological/Image
         
         # Extract histogram from lesion region (like LeFusion!)
         lesion_pixels = image[mask > 0]
@@ -167,11 +155,9 @@ class LIDCDataset(Dataset):
         mask = torch.from_numpy(mask).float()
         hist = torch.from_numpy(hist).float()
 
-        if background is not None:
-            background = torch.from_numpy(background).float()
-        else:
-            # Use image without lesion as background (rough approximation)
-            background = image * (1 - mask)
+        # No background needed during training (following LeFusion)
+        # Set to zeros for compatibility with model interface
+        background = torch.zeros_like(image)
         
         # Add channel dimension
         if len(image.shape) == 2:
