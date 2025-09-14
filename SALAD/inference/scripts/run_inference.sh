@@ -1,41 +1,35 @@
 #!/bin/bash
 
-# SALAD Inference Script - Generate Synthetic Pathological Images
-# Clean and simple pipeline for synthetic data generation
+# SALAD Inference Script
+# Generates synthetic pathological images from normal images
 
-# Color codes for output
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}    SALAD Synthetic Data Generation     ${NC}"
-echo -e "${GREEN}========================================${NC}"
+echo -e "${BLUE}========================================${NC}"
+echo -e "${BLUE}        SALAD Inference Pipeline        ${NC}"
+echo -e "${BLUE}========================================${NC}"
 
-# Configuration
-CHECKPOINT_PATH="${1:-checkpoints/salad_best.pt}"
-OUTPUT_DIR="${2:-results/synthesis}"
-NUM_SAMPLES="${3:-100}"
-BATCH_SIZE="${4:-8}"
-DDIM_STEPS="${5:-50}"
-DEVICE="${6:-cuda}"
+# Default values
+CHECKPOINT="${1:-../checkpoints/lidc_steps/checkpoint_step_50000.pth}"
+NORMAL_DIR="${2:-/content/LeFusion/data/LIDC/Normal/Image}"
+OUTPUT_DIR="${3:-../results/synthesis}"
+DDIM_STEPS="${4:-50}"
+DEVICE="${5:-cuda}"
 
 # Check if checkpoint exists
-if [ ! -f "$CHECKPOINT_PATH" ]; then
-    echo -e "${RED}Error: Checkpoint not found at $CHECKPOINT_PATH${NC}"
-    echo -e "${YELLOW}Please provide a valid checkpoint path as first argument${NC}"
-    echo "Usage: ./run_inference.sh <checkpoint_path> [output_dir] [num_samples] [batch_size] [ddim_steps] [device]"
-    exit 1
+if [ ! -f "$CHECKPOINT" ]; then
+    echo -e "${YELLOW}Warning: Checkpoint not found at $CHECKPOINT${NC}"
 fi
 
 # Display configuration
 echo -e "${YELLOW}Configuration:${NC}"
-echo "  Checkpoint: $CHECKPOINT_PATH"
-echo "  Output Directory: $OUTPUT_DIR"
-echo "  Number of Samples: $NUM_SAMPLES"
-echo "  Batch Size: $BATCH_SIZE"
-echo "  DDIM Steps: $DDIM_STEPS (50=fast, 1000=quality)"
+echo "  Checkpoint: $CHECKPOINT"
+echo "  Normal images: $NORMAL_DIR"
+echo "  Output: $OUTPUT_DIR"
+echo "  DDIM steps: $DDIM_STEPS"
 echo "  Device: $DEVICE"
 echo ""
 
@@ -43,28 +37,25 @@ echo ""
 mkdir -p "$OUTPUT_DIR"
 
 # Run inference
-echo -e "${GREEN}Starting synthetic data generation...${NC}"
+echo -e "${GREEN}Starting synthesis...${NC}"
 
-python inference_pipeline.py \
-    --checkpoint "$CHECKPOINT_PATH" \
+cd ..  # Go to SALAD directory
+python inference/inference.py \
+    --checkpoint "$CHECKPOINT" \
+    --normal_dir "$NORMAL_DIR" \
     --output_dir "$OUTPUT_DIR" \
-    --num_samples "$NUM_SAMPLES" \
-    --batch_size "$BATCH_SIZE" \
     --ddim_steps "$DDIM_STEPS" \
-    --device "$DEVICE" \
-    --seed 42 \
-    --guidance_scale 1.0 \
-    --image_size 256 256 \
-    --save_format nifti
+    --device "$DEVICE"
 
-# Check if successful
+# Check results
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Synthesis completed successfully!${NC}"
-    echo -e "${GREEN}Results saved to: $OUTPUT_DIR${NC}"
     
     # Count generated files
-    NUM_FILES=$(ls -1 "$OUTPUT_DIR"/*.nii.gz 2>/dev/null | wc -l)
-    echo -e "${GREEN}Generated $NUM_FILES synthetic images${NC}"
+    if [ -d "$OUTPUT_DIR" ]; then
+        NUM_FILES=$(ls -1 "$OUTPUT_DIR"/*.nii.gz 2>/dev/null | wc -l)
+        echo -e "${GREEN}Generated $NUM_FILES synthetic images${NC}"
+    fi
 else
     echo -e "${RED}✗ Synthesis failed!${NC}"
     exit 1

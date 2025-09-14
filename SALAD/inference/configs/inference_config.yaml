@@ -1,14 +1,31 @@
 # SALAD Inference Configuration
+
+# Model settings
 model:
-  checkpoint: ../checkpoints/salad_best.pt
+  checkpoint_path: ../checkpoints/lidc_steps/checkpoint_step_50000.pth
   device: cuda
-  
+
+# Data paths
+data:
+  normal_dir: /content/LeFusion/data/LIDC/Normal/Image
+  output_dir: ../results/synthesis
+
+# Sampling settings
 sampling:
-  method: DDIM
-  steps: 50
-  batch_size: 8
-  guidance_scale: 1.0
-  
+  ddim_steps: 50  # 50 for fast, 1000 for quality
+  seed: 42
+
+# Lesion generation
+lesion:
+  min_lesions: 1
+  max_lesions: 3
+  min_radius: 5
+  max_radius: 25
+
+# Output settings
 output:
-  format: nifti
-  directory: ../results/synthesis
+  format: nifti  # nifti or png
+  save_mask: true
+  
+# Processing
+batch_size: 1  # Process one image at a time for memory efficiency
