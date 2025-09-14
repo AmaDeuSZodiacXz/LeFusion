@@ -1,9 +1,9 @@
-# SALAD Inference Configuration
+# SALAD Inference Configuration (LeFusion-style)
 
 # Data settings
 data:
-  normal_dir: "../data/LIDC/Normal"        # Normal images for background
-  pathological_dir: "../data/LIDC/Pathological"  # For masks and histograms
+  test_txt_path: "../data/LIDC/Pathological/test.txt"  # Test cases list
+  normal_dir: "../data/LIDC/Normal/Image"              # Normal images directory
   output_dir: "results/synthesis"
 
 # Model settings
@@ -14,8 +14,7 @@ model:
 # Sampling settings
 sampling:
   ddim_steps: 50          # Fast sampling (50 vs LeFusion's 1000)
-  num_samples: 100        # Number of synthetic images to generate
-  batch_size: 4
+  batch_size: 4           # Process this many images at once
   guidance_scale: 1.0
 
 # Repaint settings (for background preservation)
