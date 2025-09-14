@@ -3,8 +3,8 @@
 # Data settings
 data:
   dataset: "lidc"  # Options: lidc, emidec
-  data_dir: "../data/LIDC/Pathological"  # Relative path from SALAD directory
-  normal_dir: "../data/LIDC/Normal"      # For background images
+  data_dir: "../data/LIDC/Pathological"  # ONLY pathological for training (like LeFusion)
+  # NOTE: Normal images NOT used during training, only during inference
   image_size: 256
   num_workers: 4
   augmentation: true
@@ -61,8 +61,8 @@ hardware:
   num_gpus: 1
   distributed: false
 
-# Inference settings (for validation)
+# Inference settings
 inference:
-  ddim_steps: 50
-  num_samples: 10
-  guidance_scale: 1.0
+  ddim_steps: 50        # Fast sampling (LeFusion uses 1000)
+  num_samples: 10       # For sample generation during training
+  normal_dir: "../data/LIDC/Normal"  # Normal images for background (inference only)

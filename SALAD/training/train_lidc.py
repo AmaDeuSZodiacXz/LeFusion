@@ -400,7 +400,7 @@ def main():
     print(f"Device: {args.device}")
     print(f"Batch size: {args.batch_size}")
     print(f"Learning rate: {args.learning_rate}")
-    print(f"Epochs: {args.epochs}")
+    print(f"Training steps: {args.train_num_steps}")
     print(f"Features: Adaptive={args.use_adaptive_noise}, Attention={args.use_lesion_attention}, MultiScale={args.use_multi_scale}")
     print("=" * 60)
     

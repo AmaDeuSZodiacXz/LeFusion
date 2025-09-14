@@ -2,7 +2,6 @@
     "data": {
         "dataset": "lidc",
         "data_dir": "../data/LIDC/Pathological",
-        "normal_dir": "../data/LIDC/Normal",
         "image_size": 256,
         "num_workers": 4
     },
