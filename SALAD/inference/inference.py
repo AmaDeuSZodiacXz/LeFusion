@@ -86,8 +86,28 @@ class SALADInference:
         
         return torch.from_numpy(img).float().unsqueeze(0).unsqueeze(0).to(self.device)
     
+    def load_mask(self, mask_path: Path) -> torch.Tensor:
+        """Load and preprocess mask to tensor"""
+        if mask_path.exists():
+            mask = nib.load(mask_path).get_fdata()
+            if mask.ndim == 3:  # Take middle slice if 3D
+                mask = mask[:, :, mask.shape[2]//2]
+            
+            # Resize to 256x256
+            if mask.shape != (256, 256):
+                from scipy.ndimage import zoom
+                zoom_factors = (256/mask.shape[0], 256/mask.shape[1])
+                mask = zoom(mask, zoom_factors, order=0)  # Nearest neighbor for mask
+            
+            # Binarize mask
+            mask = (mask > 0).astype(np.float32)
+            return torch.from_numpy(mask).float().unsqueeze(0).unsqueeze(0).to(self.device)
+        else:
+            # If no mask file, return empty mask (will generate random)
+            return None
+    
     def generate_mask(self) -> torch.Tensor:
-        """Generate random lesion mask"""
+        """Generate random lesion mask (fallback if no mask provided)"""
         mask = torch.zeros(1, 1, 256, 256, device=self.device)
         
         # Random lesions (1-3)
@@ -103,10 +123,12 @@ class SALADInference:
         return mask
     
     @torch.no_grad()
-    def synthesize(self, normal_image: torch.Tensor, ddim_steps: int = 50) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Synthesize pathological from normal image"""
-        # Generate lesion mask
-        mask = self.generate_mask()
+    def synthesize(self, normal_image: torch.Tensor, mask: Optional[torch.Tensor] = None, 
+                  ddim_steps: int = 50) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Synthesize pathological from normal image using provided or generated mask"""
+        # Use provided mask or generate random one
+        if mask is None:
+            mask = self.generate_mask()
         
         # DDIM sampling
         timesteps = torch.linspace(999, 0, ddim_steps, dtype=torch.long, device=self.device)
@@ -150,13 +172,30 @@ class SALADInference:
         """Process all normal images in directory"""
         normal_dir = Path(normal_dir)
         output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create Image and Mask subdirectories
+        image_dir = output_dir / "Image"
+        mask_dir = output_dir / "Mask"
+        image_dir.mkdir(parents=True, exist_ok=True)
+        mask_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Check if normal_dir has Image/Mask subdirectory (LIDC structure)
+        if (normal_dir / "Image").exists():
+            normal_image_dir = normal_dir / "Image"
+            normal_mask_dir = normal_dir / "Mask"
+            print(f"Found Image subdirectory, using: {normal_image_dir}")
+            print(f"Found Mask subdirectory, using: {normal_mask_dir}")
+        else:
+            normal_image_dir = normal_dir
+            normal_mask_dir = None
         
         # Find all images
         image_files = []
         for ext in ['*.nii.gz', '*.nii', '*.npy', '*.png']:
-            image_files.extend(normal_dir.glob(ext))
-            image_files.extend(normal_dir.glob(f"**/{ext}"))
+            image_files.extend(normal_image_dir.glob(ext))
+            # Don't recurse if we're already in Image directory
+            if normal_image_dir == normal_dir:
+                image_files.extend(normal_image_dir.glob(f"**/{ext}"))
         
         if not image_files:
             raise ValueError(f"No images found in {normal_dir}")
@@ -169,27 +208,47 @@ class SALADInference:
             # Load normal image
             normal = self.load_image(img_path)
             
-            # Generate synthetic
-            synthetic, mask = self.synthesize(normal, ddim_steps)
+            # Try to load corresponding mask (CVol -> CMask)
+            mask = None
+            if normal_mask_dir and normal_mask_dir.exists():
+                # Convert image name to mask name
+                img_name = img_path.stem.replace('.nii', '')
+                mask_name = img_name.replace('CVol', 'CMask') + '.nii.gz'
+                mask_path = normal_mask_dir / mask_name
+                
+                if mask_path.exists():
+                    mask = self.load_mask(mask_path)
+                    print(f"  Using mask: {mask_name}")
+                else:
+                    print(f"  No mask found for {img_name}, will generate random mask")
+            
+            # Generate synthetic with actual or random mask
+            synthetic, used_mask = self.synthesize(normal, mask, ddim_steps)
             
             # Save results
-            self.save_results(synthetic, mask, img_path.stem, idx, output_dir)
+            self.save_results(synthetic, used_mask, img_path.stem, idx, image_dir, mask_dir)
         
-        print(f"\n✓ Generated {len(image_files)} synthetic images in {output_dir}")
+        print(f"\n✓ Generated {len(image_files)} synthetic images")
+        print(f"   Images saved to: {image_dir}")
+        print(f"   Masks saved to: {mask_dir}")
     
     def save_results(self, synthetic: torch.Tensor, mask: torch.Tensor, 
-                    name: str, idx: int, output_dir: Path):
-        """Save synthetic image and mask"""
+                    name: str, idx: int, image_dir: Path, mask_dir: Path):
+        """Save synthetic image and mask in separate directories"""
         synthetic_np = synthetic.squeeze().cpu().numpy()
         mask_np = mask.squeeze().cpu().numpy()
         
+        # Use original name format for consistency with LIDC structure
+        # Remove 'synthetic_' prefix and index for cleaner names
+        file_name = f"{name}.nii.gz"
+        
         # Save as NIfTI
-        base_name = f"synthetic_{idx:04d}_{name}"
         synthetic_nifti = nib.Nifti1Image(synthetic_np, np.eye(4))
         mask_nifti = nib.Nifti1Image(mask_np, np.eye(4))
         
-        nib.save(synthetic_nifti, output_dir / f"{base_name}.nii.gz")
-        nib.save(mask_nifti, output_dir / f"{base_name}_mask.nii.gz")
+        # Save image and mask in their respective directories
+        nib.save(synthetic_nifti, image_dir / file_name)
+        nib.save(mask_nifti, mask_dir / file_name)
 
 
 def main():
