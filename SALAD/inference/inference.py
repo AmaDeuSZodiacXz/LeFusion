@@ -16,10 +16,10 @@ from tqdm import tqdm
 import nibabel as nib
 from PIL import Image
 
-# Add SALAD directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add parent directory (SALAD) to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from models.salad_core import NeuralSynthUNet, SALADConfig, AdaptiveNoiseScheduler
+from models.salad_core import SALADUNet, SALADConfig, AdaptiveNoiseScheduler
 
 
 class SALADInference:
@@ -42,7 +42,7 @@ class SALADInference:
             config = SALADConfig()  # Default config
         
         # Create model
-        model = NeuralSynthUNet(config)
+        model = SALADUNet(config)
         
         # Load weights
         if 'model_state_dict' in checkpoint:

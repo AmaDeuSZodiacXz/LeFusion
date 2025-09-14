@@ -43,7 +43,7 @@ python train_with_difftumor.py \
     --dataset lidc \
     --epochs 200 \
     --batch_size 2 \
-    --output_dir ../segmentation_models/lidc/neuralsynth_P_N_prime_nnunet
+    --output_dir ../segmentation_models/lidc/salad_P_N_prime_nnunet
 ```
 
 ### 2. Train SwinUNETR
@@ -56,7 +56,7 @@ python train_with_difftumor.py \
     --dataset lidc \
     --epochs 200 \
     --batch_size 4 \
-    --output_dir ../segmentation_models/lidc/neuralsynth_P_N_prime_swinunetr
+    --output_dir ../segmentation_models/lidc/salad_P_N_prime_swinunetr
 ```
 
 ## Configuration Files
@@ -119,7 +119,7 @@ loss:
 
 def integrate_with_difftumor(difftumor_path, config):
     """
-    Integrates NeuralSynth data with DiffTumor training
+    Integrates SALAD data with DiffTumor training
     """
     # Add DiffTumor to path
     sys.path.append(difftumor_path)
@@ -154,7 +154,7 @@ def integrate_with_difftumor(difftumor_path, config):
 
 ### 3. Checkpointing
 ```
-segmentation_models/lidc/neuralsynth_P_N_prime_nnunet/
+segmentation_models/lidc/salad_P_N_prime_nnunet/
 ├── model_best.pth          # Best validation DICE
 ├── model_latest.pth        # Latest epoch
 ├── training_log.txt        # Training history
@@ -228,10 +228,10 @@ segmentation_models/
 │   ├── baseline_P_only/
 │   │   ├── nnunet/
 │   │   └── swinunetr/
-│   ├── neuralsynth_P_N_prime/
+│   ├── salad_P_N_prime/
 │   │   ├── nnunet/
 │   │   └── swinunetr/
-│   └── neuralsynth_all_combined/
+│   └── salad_all_combined/
 │       ├── nnunet/
 │       └── swinunetr/
 └── emidec/

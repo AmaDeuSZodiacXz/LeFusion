@@ -1,8 +1,8 @@
-# STEP 1: Train Synthetic Model (NeuralSynth Technique)
+# STEP 1: Train Synthetic Model (SALAD Technique)
 
 ## Overview
 
-This is the core innovation of NeuralSynth - training a diffusion model with:
+This is the core innovation of SALAD - training a diffusion model with:
 - **Adaptive Noise Scheduling**: Learnable beta parameters
 - **Lesion-Aware Attention**: Focus on lesion boundaries
 - **Multi-Scale Features**: Handle all lesion sizes
@@ -44,7 +44,7 @@ python train_emidec.py \
 ## Model Architecture
 
 ```python
-NeuralSynthDiffusion(
+SALADDiffusion(
     in_channels=1,
     out_channels=1,
     base_channels=128,  # 2x LeFusion
@@ -164,12 +164,12 @@ tensorboard --logdir=../checkpoints/lidc/logs
 Saved every 10 epochs:
 ```
 checkpoints/lidc/
-├── neuralsynth_epoch_10.pth
-├── neuralsynth_epoch_20.pth
-├── neuralsynth_epoch_30.pth
-├── neuralsynth_epoch_40.pth
-├── neuralsynth_epoch_50.pth
-└── neuralsynth_best.pth  # Best validation
+├── salad_epoch_10.pth
+├── salad_epoch_20.pth
+├── salad_epoch_30.pth
+├── salad_epoch_40.pth
+├── salad_epoch_50.pth
+└── salad_best.pth  # Best validation
 ```
 
 ## Validation Metrics

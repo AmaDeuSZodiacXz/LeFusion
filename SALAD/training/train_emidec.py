@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Train NeuralSynth diffusion model on EMIDEC dataset.
+Train SALAD diffusion model on EMIDEC dataset.
 This script trains the synthetic generation model for cardiac lesion synthesis
 with support for multi-class lesions (MI and PMO).
 """
@@ -25,12 +25,12 @@ from einops import rearrange
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from models.neuralsynth_core import (
-    NeuralSynthDiffusion, 
-    NeuralSynthConfig,
+from models.salad_core import (
+    SALADDiffusion, 
+    SALADConfig,
     AdaptiveNoiseScheduler
 )
-from models.advanced_losses import NeuralSynthLoss, DiffusionLoss
+from models.advanced_losses import SALADLoss, DiffusionLoss
 from utils.path_utils import get_project_paths
 
 
@@ -207,7 +207,7 @@ def validate(model, dataloader, criterion, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train NeuralSynth on EMIDEC dataset')
+    parser = argparse.ArgumentParser(description='Train SALAD on EMIDEC dataset')
     
     # Data arguments
     parser.add_argument('--data_dir', type=str, required=True,
@@ -265,7 +265,7 @@ def main():
         json.dump(vars(args), f, indent=2)
     
     print("=" * 60)
-    print("NeuralSynth Training on EMIDEC Dataset")
+    print("SALAD Training on EMIDEC Dataset")
     print("=" * 60)
     print(f"Data directory: {args.data_dir}")
     print(f"Output directory: {args.output_dir}")
@@ -282,7 +282,7 @@ def main():
     print(f"Using device: {device}")
     
     # Create model configuration
-    config = NeuralSynthConfig(
+    config = SALADConfig(
         image_size=256,  # Will be adjusted based on data
         in_channels=1,
         out_channels=1,
@@ -299,7 +299,7 @@ def main():
     )
     
     # Create model
-    model = NeuralSynthDiffusion(config).to(device)
+    model = SALADDiffusion(config).to(device)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     # Create datasets
@@ -375,7 +375,7 @@ def main():
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_path = output_dir / 'neuralsynth_best.pth'
+                best_path = output_dir / 'salad_best.pth'
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
@@ -387,7 +387,7 @@ def main():
         
         # Save checkpoint
         if epoch % args.save_interval == 0:
-            checkpoint_path = output_dir / f'neuralsynth_epoch_{epoch}.pth'
+            checkpoint_path = output_dir / f'salad_epoch_{epoch}.pth'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -402,7 +402,7 @@ def main():
         writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], epoch)
     
     # Save final model
-    final_path = output_dir / f'neuralsynth_epoch_{args.epochs}.pth'
+    final_path = output_dir / f'salad_epoch_{args.epochs}.pth'
     torch.save({
         'epoch': args.epochs,
         'model_state_dict': model.state_dict(),

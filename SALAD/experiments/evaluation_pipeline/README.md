@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive evaluation of segmentation models trained with NeuralSynth synthetic data, comparing against LeFusion baselines and state-of-the-art methods.
+Comprehensive evaluation of segmentation models trained with SALAD synthetic data, comparing against LeFusion baselines and state-of-the-art methods.
 
 ## Evaluation Metrics
 
@@ -23,10 +23,10 @@ Comprehensive evaluation of segmentation models trained with NeuralSynth synthet
 
 ```bash
 python evaluate_segmentation.py \
-    --model_path ../segmentation_models/lidc/neuralsynth_P_N_prime/best_model.pth \
+    --model_path ../segmentation_models/lidc/salad_P_N_prime/best_model.pth \
     --model_type nnunet \
     --test_data ../../data/LIDC/Test \
-    --output_dir ../results/metrics/neuralsynth_P_N_prime \
+    --output_dir ../results/metrics/salad_P_N_prime \
     --compute_nsd \
     --tolerance 1.0  # 1mm for NSD
 ```
@@ -38,7 +38,7 @@ python evaluate_all_models.py \
     --models_dir ../segmentation_models/lidc \
     --test_data ../../data/LIDC/Test \
     --output_dir ../results/metrics \
-    --models baseline_P,neuralsynth_P_N_prime,neuralsynth_all \
+    --models baseline_P,salad_P_N_prime,salad_all \
     --save_predictions
 ```
 
@@ -46,7 +46,7 @@ python evaluate_all_models.py \
 
 ```bash
 python compare_with_lefusion.py \
-    --neuralsynth_results ../results/metrics/neuralsynth_P_N_prime/metrics.json \
+    --salad_results ../results/metrics/salad_P_N_prime/metrics.json \
     --lefusion_baseline 83.44 \
     --lefusion_h 80.62 \
     --lefusion_h_diffmask 83.44 \
@@ -63,9 +63,9 @@ python compare_with_lefusion.py \
 | LeFusion | 78.77% | 89.25% | 7.8mm | 76.1% | 99.3% | 172 |
 | LeFusion-H | 80.62% | 90.90% | 6.9mm | 78.5% | 99.4% | 148 |
 | LeFusion-H+DiffMask | 83.44% | 93.35% | 5.3mm | 82.1% | 99.5% | 156 |
-| **NeuralSynth P+P'** | 85.1% | 93.8% | 4.9mm | 83.5% | 99.6% | 85 |
-| **NeuralSynth P+N' (Main)** | **89.2%** | **95.4%** | **4.1mm** | **87.3%** | **99.7%** | **85** |
-| **NeuralSynth All** | 89.5% | 95.6% | 4.0mm | 87.8% | 99.7% | 85 |
+| **SALAD P+P'** | 85.1% | 93.8% | 4.9mm | 83.5% | 99.6% | 85 |
+| **SALAD P+N' (Main)** | **89.2%** | **95.4%** | **4.1mm** | **87.3%** | **99.7%** | **85** |
+| **SALAD All** | 89.5% | 95.6% | 4.0mm | 87.8% | 99.7% | 85 |
 
 ### EMIDEC Dataset
 
@@ -75,8 +75,8 @@ python compare_with_lefusion.py \
 | LeFusion | 69.88% | 34.79% | 52.34% | 83.1% | 70.2% |
 | LeFusion-H | 69.95% | 38.01% | 53.98% | 83.5% | 73.8% |
 | LeFusion-H+DiffMask | 71.28% | 43.41% | 57.35% | 85.2% | 78.3% |
-| **NeuralSynth P+N'** | **75.2%** | **48.5%** | **61.85%** | **88.1%** | **82.5%** |
-| **NeuralSynth All** | 75.8% | 49.1% | 62.45% | 88.5% | 83.0% |
+| **SALAD P+N'** | **75.2%** | **48.5%** | **61.85%** | **88.1%** | **82.5%** |
+| **SALAD All** | 75.8% | 49.1% | 62.45% | 88.5% | 83.0% |
 
 ## Statistical Significance Testing
 
@@ -85,7 +85,7 @@ python compare_with_lefusion.py \
 python statistical_analysis.py \
     --method paired_t_test \
     --baseline_results ../results/metrics/baseline_P/metrics.json \
-    --neuralsynth_results ../results/metrics/neuralsynth_P_N_prime/metrics.json \
+    --salad_results ../results/metrics/salad_P_N_prime/metrics.json \
     --output ../results/statistical_tests/t_test.txt
 ```
 
@@ -94,7 +94,7 @@ python statistical_analysis.py \
 python statistical_analysis.py \
     --method wilcoxon \
     --baseline_results ../results/metrics/baseline_P/metrics.json \
-    --neuralsynth_results ../results/metrics/neuralsynth_P_N_prime/metrics.json \
+    --salad_results ../results/metrics/salad_P_N_prime/metrics.json \
     --output ../results/statistical_tests/wilcoxon.txt
 ```
 
@@ -102,7 +102,7 @@ python statistical_analysis.py \
 ```bash
 python statistical_analysis.py \
     --method bootstrap \
-    --results ../results/metrics/neuralsynth_P_N_prime/metrics.json \
+    --results ../results/metrics/salad_P_N_prime/metrics.json \
     --n_bootstrap 10000 \
     --confidence 0.95 \
     --output ../results/statistical_tests/bootstrap_ci.txt
@@ -130,7 +130,7 @@ python ablation_study.py \
 Expected Results:
 | Configuration | DICE | Δ vs Full |
 |--------------|------|-----------|
-| Full NeuralSynth | 89.2% | - |
+| Full SALAD | 89.2% | - |
 | w/o Adaptive Noise | 86.8% | -2.4% |
 | w/o Lesion Attention | 87.1% | -2.1% |
 | w/o Multi-Scale | 87.5% | -1.7% |
@@ -179,7 +179,7 @@ python generate_figures.py \
 python visualize_predictions.py \
     --predictions_dir ../results/predictions \
     --ground_truth ../../data/LIDC/Test \
-    --models baseline,lefusion,neuralsynth \
+    --models baseline,lefusion,salad \
     --num_examples 10 \
     --output_dir ../results/figures/examples
 ```
@@ -187,7 +187,7 @@ python visualize_predictions.py \
 ### 3. Error Analysis
 ```bash
 python error_analysis.py \
-    --predictions ../results/predictions/neuralsynth_P_N_prime \
+    --predictions ../results/predictions/salad_P_N_prime \
     --ground_truth ../../data/LIDC/Test \
     --output_dir ../results/error_analysis \
     --analyze_by size,location,intensity
@@ -198,7 +198,7 @@ python error_analysis.py \
 ### Train on LIDC, Test on EMIDEC
 ```bash
 python cross_dataset_eval.py \
-    --model_path ../segmentation_models/lidc/neuralsynth_P_N_prime/best_model.pth \
+    --model_path ../segmentation_models/lidc/salad_P_N_prime/best_model.pth \
     --test_data ../../data/EMIDEC/Test \
     --output ../results/cross_dataset/lidc_to_emidec.json
 ```
@@ -206,7 +206,7 @@ python cross_dataset_eval.py \
 ### Train on EMIDEC, Test on LIDC
 ```bash
 python cross_dataset_eval.py \
-    --model_path ../segmentation_models/emidec/neuralsynth_P_N_prime/best_model.pth \
+    --model_path ../segmentation_models/emidec/salad_P_N_prime/best_model.pth \
     --test_data ../../data/LIDC/Test \
     --output ../results/cross_dataset/emidec_to_lidc.json
 ```
@@ -226,7 +226,7 @@ Expected Results:
 | Method | Generation | Segmentation | Total | Speedup |
 |--------|------------|--------------|-------|---------|
 | LeFusion (1000 steps) | 40s | 132ms | 40.13s | 1x |
-| NeuralSynth (50 steps) | **2s** | **85ms** | **2.09s** | **19.2x** |
+| SALAD (50 steps) | **2s** | **85ms** | **2.09s** | **19.2x** |
 
 ## Clinical Relevance Metrics
 
@@ -234,7 +234,7 @@ Expected Results:
 ```bash
 python clinical_metrics.py \
     --metric detection_rate \
-    --predictions ../results/predictions/neuralsynth_P_N_prime \
+    --predictions ../results/predictions/salad_P_N_prime \
     --ground_truth ../../data/LIDC/Test \
     --size_threshold 5mm
 ```
@@ -243,7 +243,7 @@ python clinical_metrics.py \
 ```bash
 python clinical_metrics.py \
     --metric size_accuracy \
-    --predictions ../results/predictions/neuralsynth_P_N_prime \
+    --predictions ../results/predictions/salad_P_N_prime \
     --ground_truth ../../data/LIDC/Test
 ```
 
@@ -299,7 +299,7 @@ results/
 │   │   ├── metrics.json
 │   │   ├── per_case_results.csv
 │   │   └── confusion_matrix.png
-│   ├── neuralsynth_P_N_prime/
+│   ├── salad_P_N_prime/
 │   │   └── [same structure]
 │   └── comparison_summary.json
 ├── figures/
@@ -348,7 +348,7 @@ python evaluate_segmentation.py \
 
 When reporting results:
 ```
-NeuralSynth achieves 89.2% DICE on LIDC-IDRI test set,
+SALAD achieves 89.2% DICE on LIDC-IDRI test set,
 outperforming LeFusion-H+DiffMask (83.44%) by 5.76 percentage points
 with 20x faster inference (50 vs 1000 diffusion steps).
 ```

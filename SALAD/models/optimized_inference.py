@@ -49,7 +49,7 @@ class DDIMSampler:
         return prev_sample
 
 
-class OptimizedNeuralSynth(nn.Module):
+class OptimizedSALAD(nn.Module):
     def __init__(self, base_model, config):
         super().__init__()
         self.model = base_model
@@ -143,10 +143,10 @@ class OptimizedNeuralSynth(nn.Module):
         return self.fast_sample(shape, lesion_masks, num_steps=50, device=device)
 
 
-class CachedNeuralSynth(nn.Module):
+class CachedSALAD(nn.Module):
     def __init__(self, base_model, config, cache_size: int = 100):
         super().__init__()
-        self.optimized_model = OptimizedNeuralSynth(base_model, config)
+        self.optimized_model = OptimizedSALAD(base_model, config)
         self.cache = {}
         self.cache_size = cache_size
         self.cache_hits = 0
@@ -325,7 +325,7 @@ def create_optimized_model(checkpoint_path: str, config_path: Optional[str] = No
     import os
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
-    from models.neuralsynth_core import NeuralSynthConfig, NeuralSynthDiffusion
+    from models.salad_core import SALADConfig, SALADDiffusion
     
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     
@@ -333,16 +333,16 @@ def create_optimized_model(checkpoint_path: str, config_path: Optional[str] = No
         import json
         with open(config_path, 'r') as f:
             config_dict = json.load(f)
-        config = NeuralSynthConfig(**config_dict)
+        config = SALADConfig(**config_dict)
     else:
         config_dict = checkpoint.get('config', {})
-        config = NeuralSynthConfig(**config_dict)
+        config = SALADConfig(**config_dict)
     
-    base_model = NeuralSynthDiffusion(config)
+    base_model = SALADDiffusion(config)
     base_model.load_state_dict(checkpoint['model_state_dict'])
     
-    optimized = OptimizedNeuralSynth(base_model, config)
+    optimized = OptimizedSALAD(base_model, config)
     
-    cached_model = CachedNeuralSynth(base_model, config)
+    cached_model = CachedSALAD(base_model, config)
     
     return optimized, cached_model

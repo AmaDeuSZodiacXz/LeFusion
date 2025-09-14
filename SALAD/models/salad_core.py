@@ -200,7 +200,7 @@ class ResidualBlock(nn.Module):
         return h + self.skip_connection(x)
 
 
-class NeuralSynthUNet(nn.Module):
+class SALADUNet(nn.Module):
     def __init__(self, config: SALADConfig):
         super().__init__()
         self.config = config
@@ -358,7 +358,7 @@ class NeuralSynthUNet(nn.Module):
 
 
 class SALADDiffusion(nn.Module):
-    """NeuralSynth Diffusion with Background Preservation.
+    """SALAD Diffusion with Background Preservation.
     
     Key innovation beyond LeFusion:
     - Preserves background using forward diffusion (like LeFusion)
@@ -369,7 +369,7 @@ class SALADDiffusion(nn.Module):
     def __init__(self, config: SALADConfig):
         super().__init__()
         self.config = config
-        self.model = NeuralSynthUNet(config)
+        self.model = SALADUNet(config)
         self.preserve_background = True  # Core feature from LeFusion
         
         # Initialize model weights properly
@@ -592,3 +592,8 @@ class SALADDiffusion(nn.Module):
                     x = mean
             
             return x
+# Backward compatibility
+# Backward compatibility aliases
+NeuralSynthUNet = SALADUNet
+NeuralSynthDiffusion = SALADDiffusion
+NeuralSynthConfig = SALADConfig

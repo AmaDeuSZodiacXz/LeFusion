@@ -1,11 +1,11 @@
-# NeuralSynth Training Configuration
+# SALAD Training Configuration
 # Following LeFusion evaluation_training structure
 
 # Dataset settings
 datasets:
   lidc:
     name: "LIDC-IDRI"
-    data_path: "../data/LIDC"  # Relative to NeuralSynth directory
+    data_path: "../data/LIDC"  # Relative to SALAD directory
     patch_size: [64, 64, 32]
     spacing: [1.0, 1.0, 1.0]
     num_classes: 2  # Background + lesion
@@ -13,7 +13,7 @@ datasets:
     
   emidec:
     name: "EMIDEC"
-    data_path: "../data/EMIDEC"  # Relative to NeuralSynth directory
+    data_path: "../data/EMIDEC"  # Relative to SALAD directory
     patch_size: [72, 72, 10]
     spacing: [1.25, 1.25, 8.0]
     num_classes: 3  # Background + MI + PMO
@@ -76,7 +76,7 @@ data_combinations:
     synthetic_types: ["P_P_prime"]
     
   P_N_prime:
-    description: "Real + synthetic from normal (NeuralSynth main)"
+    description: "Real + synthetic from normal (SALAD main)"
     include_real: true
     synthetic_types: ["P_N_prime"]
     
@@ -121,7 +121,7 @@ hardware:
   mixed_precision: true
   distributed: false
 
-# Paths (all relative to NeuralSynth directory)
+# Paths (all relative to SALAD directory)
 paths:
   base_dir: ".."  # Parent directory (LeFusion)
   neuralsynth_dir: "."  # Current directory

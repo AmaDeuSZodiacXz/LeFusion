@@ -419,7 +419,7 @@ def main():
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_path = output_dir / 'neuralsynth_best.pth'
+                best_path = output_dir / 'salad_best.pth'
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
@@ -431,7 +431,7 @@ def main():
         
         # Save checkpoint
         if epoch % args.save_interval == 0:
-            checkpoint_path = output_dir / f'neuralsynth_epoch_{epoch}.pth'
+            checkpoint_path = output_dir / f'salad_epoch_{epoch}.pth'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -446,7 +446,7 @@ def main():
         writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], epoch)
     
     # Save final model
-    final_path = output_dir / f'neuralsynth_epoch_{args.epochs}.pth'
+    final_path = output_dir / f'salad_epoch_{args.epochs}.pth'
     torch.save({
         'epoch': args.epochs,
         'model_state_dict': model.state_dict(),
