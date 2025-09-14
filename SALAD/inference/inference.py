@@ -389,16 +389,14 @@ def main():
             # Set defaults from config
             if not args.checkpoint and 'model' in config:
                 args.checkpoint = config['model'].get('checkpoint')
+            if not args.test_txt_path and 'data' in config:
+                args.test_txt_path = config['data'].get('test_txt_path')
             if not args.normal_dir and 'data' in config:
                 args.normal_dir = config['data'].get('normal_dir')
-            if not args.pathological_dir and 'data' in config:
-                args.pathological_dir = config['data'].get('pathological_dir')
             if not args.output_dir and 'data' in config:
                 args.output_dir = config['data'].get('output_dir')
             if not args.ddim_steps and 'sampling' in config:
                 args.ddim_steps = config['sampling'].get('ddim_steps', 50)
-            if not args.num_samples and 'sampling' in config:
-                args.num_samples = config['sampling'].get('num_samples', 100)
             if not args.device and 'model' in config:
                 args.device = config['model'].get('device', 'cuda')
         else:
