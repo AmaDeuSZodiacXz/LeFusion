@@ -46,11 +46,29 @@ class SALADInference:
         """Load trained SALAD model"""
         print(f"Loading model from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        
+
+        # Debug checkpoint structure
+        print(f"Checkpoint keys: {checkpoint.keys() if isinstance(checkpoint, dict) else 'Not a dict'}")
+
         # Extract config
-        if 'config' in checkpoint:
-            config = SALADConfig(**checkpoint['config'])
+        if isinstance(checkpoint, dict) and 'config' in checkpoint:
+            config_data = checkpoint['config']
+            # Handle different config formats
+            if isinstance(config_data, SALADConfig):
+                config = config_data  # Already a SALADConfig object
+            elif isinstance(config_data, dict):
+                config = SALADConfig(**config_data)  # Create from dict
+            else:
+                # Try to extract attributes from object
+                try:
+                    config_dict = vars(config_data) if hasattr(config_data, '__dict__') else {}
+                    config = SALADConfig(**config_dict)
+                    print(f"Extracted config from {type(config_data).__name__}")
+                except:
+                    print(f"Warning: Cannot extract config from {type(config_data)}, using defaults")
+                    config = SALADConfig()
         else:
+            print("Warning: No config found in checkpoint, using defaults")
             config = SALADConfig()  # Default config
         
         # Create model
