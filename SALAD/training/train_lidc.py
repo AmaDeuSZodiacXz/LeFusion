@@ -363,6 +363,13 @@ def main():
                 if section in config:
                     for key, value in config[section].items():
                         if hasattr(args, key):
+                            # Convert string numbers to appropriate types
+                            if key in ['learning_rate', 'weight_decay', 'gradient_clip',
+                                      'gradient_skip_threshold', 'ema_decay']:
+                                value = float(value) if isinstance(value, str) else value
+                            elif key in ['batch_size', 'train_num_steps', 'save_interval',
+                                        'sample_interval', 'num_workers', 'warmup_steps']:
+                                value = int(value) if isinstance(value, str) else value
                             setattr(args, key, value)
 
     # Handle relative paths - make them relative to SALAD directory
@@ -459,6 +466,15 @@ def main():
     
     # Create optimizer with lower learning rate to prevent gradient explosion
     # Start with very low LR and increase if stable
+    # Ensure numeric parameters have correct types and defaults
+    args.learning_rate = float(getattr(args, 'learning_rate', 1e-5))
+    args.weight_decay = float(getattr(args, 'weight_decay', 1e-5))
+    args.gradient_clip = float(getattr(args, 'gradient_clip', 1.0))
+    args.gradient_skip_threshold = float(getattr(args, 'gradient_skip_threshold', 100.0))
+    args.train_num_steps = int(getattr(args, 'train_num_steps', 50000))
+    args.save_interval = int(getattr(args, 'save_interval', 5000))
+    args.sample_interval = int(getattr(args, 'sample_interval', 1000))
+
     initial_lr = args.learning_rate * 0.1  # Start with 1/10th of requested LR
     optimizer = optim.AdamW(
         model.parameters(),
