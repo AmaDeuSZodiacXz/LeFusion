@@ -22,14 +22,15 @@
         "use_histogram": true
     },
     "training": {
+        "train_num_steps": 50000,
         "batch_size": 4,
-        "epochs": 100,
         "learning_rate": 0.00001,
-        "save_interval": 20,
-        "val_interval": 5,
-        "gradient_clip": 0.1,
+        "save_interval": 5000,
+        "sample_interval": 1000,
+        "gradient_clip": 1.0,
         "gradient_skip_threshold": 100.0,
-        "weight_decay": 0.00001
+        "weight_decay": 0.00001,
+        "warmup_steps": 1000
     },
     "output": {
         "output_dir": "checkpoints/lidc_fixed",

@@ -258,23 +258,37 @@ def train_epoch(model, dataloader, optimizer, criterion, device, epoch, gradient
     return total_loss / len(dataloader)
 
 
-def validate(model, dataloader, criterion, device):
-    """Validate the model."""
+def generate_samples(model, num_samples, device, save_dir, step, normal_loader):
+    """Generate sample images to monitor training progress."""
     model.eval()
-    total_loss = 0
-    
+
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc='Validation'):
-            image = batch['image'].to(device)
-            mask = batch['mask'].to(device)
-            background = batch['background'].to(device)
-            
-            output = model(image, lesion_mask=mask, background=background)
-            loss = criterion(output['predicted_noise'], output['target_noise'], output['timesteps'])
-            
-            total_loss += loss.item()
-    
-    return total_loss / len(dataloader)
+        # Get random normal images for background
+        try:
+            batch = next(iter(normal_loader))
+            normal_images = batch['image'][:num_samples].to(device)
+        except:
+            # Fallback if no normal images
+            normal_images = torch.randn(num_samples, 1, 256, 256).to(device)
+
+        # Generate synthetic pathological images
+        print(f"\n🎨 Generating {num_samples} samples at step {step}...")
+
+        # Use DDIM sampling for faster generation
+        samples = model.sample(
+            batch_size=num_samples,
+            background=normal_images,
+            ddim_steps=50
+        )
+
+        # Save samples as grid
+        from torchvision.utils import save_image
+        sample_path = save_dir / f'samples_step_{step:06d}.png'
+        save_image(samples, sample_path, nrow=int(num_samples**0.5), normalize=True)
+        print(f"   Saved samples to {sample_path}")
+
+    model.train()
+    return samples
 
 
 def main():
@@ -303,8 +317,10 @@ def main():
                        help='Base channel count for UNet')
     
     # Training arguments
+    parser.add_argument('--train_num_steps', type=int, default=50000,
+                       help='Number of training steps (like LeFusion)')
     parser.add_argument('--epochs', type=int, default=50,
-                       help='Number of training epochs')
+                       help='Number of training epochs (deprecated, use train_num_steps)')
     parser.add_argument('--batch_size', type=int, default=4,
                        help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=1e-4,
@@ -312,9 +328,11 @@ def main():
     parser.add_argument('--weight_decay', type=float, default=1e-5,
                        help='Weight decay')
     parser.add_argument('--val_interval', type=int, default=5,
-                       help='Validation interval (epochs)')
-    parser.add_argument('--save_interval', type=int, default=10,
-                       help='Model save interval (epochs)')
+                       help='Validation interval (deprecated - no validation in generative training)')
+    parser.add_argument('--save_interval', type=int, default=5000,
+                       help='Model save interval (steps)')
+    parser.add_argument('--sample_interval', type=int, default=1000,
+                       help='Sample generation interval (steps)')
     parser.add_argument('--gradient_clip', type=float, default=1.0,
                        help='Gradient clipping threshold')
     parser.add_argument('--gradient_skip_threshold', type=float, default=100.0,
@@ -438,22 +456,25 @@ def main():
 
     model.apply(init_weights)
     
-    # Create datasets
+    # Create datasets (no validation needed for generative training)
     train_dataset = LIDCDataset(args.data_dir, split='train')
-    val_dataset = LIDCDataset(args.data_dir, split='val')
-    
+
+    # Also load normal images for background
+    normal_dataset = LIDCDataset(args.data_dir.replace('Pathological', 'Normal'), split='train')
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True
+        pin_memory=True,
+        drop_last=True
     )
-    
-    val_loader = DataLoader(
-        val_dataset,
+
+    normal_loader = DataLoader(
+        normal_dataset,
         batch_size=args.batch_size,
-        shuffle=False,
+        shuffle=True,
         num_workers=args.num_workers,
         pin_memory=True
     )
@@ -507,74 +528,137 @@ def main():
     log_dir = output_dir / 'logs' / datetime.now().strftime('%Y%m%d_%H%M%S')
     writer = SummaryWriter(log_dir)
     
+    # Step-based training loop (like LeFusion)
+    print("\nStarting step-based training...")
+    print(f"Training for {args.train_num_steps} steps")
+    print(f"Saving checkpoints every {args.save_interval} steps")
+    print(f"Generating samples every {args.sample_interval} steps")
+
+    # Create sample directory
+    sample_dir = output_dir / 'samples'
+    sample_dir.mkdir(exist_ok=True)
+
+    # Initialize step counter
+    global_step = start_epoch * len(train_loader) if args.resume else 0
+
+    # Create infinite data iterator
+    def cycle(loader):
+        while True:
+            for data in loader:
+                yield data
+
+    train_iter = cycle(train_loader)
+
+    # Progress bar for steps
+    pbar = tqdm(initial=global_step, total=args.train_num_steps, desc='Training Steps')
+
     # Training loop
-    print("\nStarting training...")
+    model.train()
+    running_loss = 0
+    loss_count = 0
 
-    # Start with aggressive gradient clipping, then relax as training stabilizes
-    for epoch in range(start_epoch, args.epochs):
-        # Adaptive gradient clipping - start strict, relax over time
-        if epoch < warmup_epochs:
-            gradient_clip = 0.1  # Very strict during warmup
-        elif epoch < 10:
-            gradient_clip = 0.5  # Still strict early on
-        elif epoch < 20:
-            gradient_clip = 1.0  # Normal clipping
+    while global_step < args.train_num_steps:
+        # Get batch
+        batch = next(train_iter)
+        image = batch['image'].to(device)
+        mask = batch['mask'].to(device)
+        background = batch['background'].to(device)
+        histogram = batch.get('histogram', None)
+        if histogram is not None:
+            histogram = histogram.to(device)
+
+        # Forward pass
+        output = model(image, lesion_mask=mask, background=background, histogram=histogram)
+        loss = criterion(output['predicted_noise'], output['target_noise'], output['timesteps'])
+        loss = loss * 0.1  # Scale down loss
+
+        # Backward pass
+        optimizer.zero_grad()
+        loss.backward()
+
+        # Gradient clipping (adaptive based on step)
+        if global_step < 1000:
+            grad_clip = 0.1
+        elif global_step < 5000:
+            grad_clip = 0.5
+        elif global_step < 10000:
+            grad_clip = 1.0
         else:
-            gradient_clip = 5.0  # Relaxed clipping
+            grad_clip = args.gradient_clip
 
-        # Train
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device, epoch, gradient_clip)
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        
-        # Validate
-        if epoch % args.val_interval == 0:
-            val_loss = validate(model, val_loader, criterion, device)
-            writer.add_scalar('Loss/val', val_loss, epoch)
-            
-            print(f"\nEpoch {epoch}: Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-            
-            # Save best model
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_path = output_dir / 'salad_best.pth'
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'best_val_loss': best_val_loss,
-                    'config': config
-                }, best_path)
-                print(f"Saved best model with val loss: {best_val_loss:.4f}")
-        
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+        # Skip update if gradient explodes
+        if grad_norm > args.gradient_skip_threshold:
+            optimizer.zero_grad()
+            pbar.set_postfix({'loss': 'skip', 'grad': f'{grad_norm:.2f}'})
+        else:
+            optimizer.step()
+            scheduler.step()
+
+            # Track loss
+            running_loss += loss.item() * 10
+            loss_count += 1
+
+            # Update progress bar
+            if loss_count > 0:
+                avg_loss = running_loss / loss_count
+                pbar.set_postfix({'loss': f'{avg_loss:.4f}', 'grad': f'{grad_norm:.2f}'})
+
         # Save checkpoint
-        if epoch % args.save_interval == 0:
-            checkpoint_path = output_dir / f'salad_epoch_{epoch}.pth'
+        if global_step > 0 and global_step % args.save_interval == 0:
+            checkpoint_path = output_dir / f'checkpoint_step_{global_step:06d}.pth'
             torch.save({
-                'epoch': epoch,
+                'step': global_step,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': train_loss,
+                'scheduler_state_dict': scheduler.state_dict(),
                 'config': config
             }, checkpoint_path)
-            print(f"Saved checkpoint: {checkpoint_path}")
-        
-        # Update learning rate
-        scheduler.step()
-        writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], epoch)
-    
+            print(f"\n💾 Saved checkpoint at step {global_step}")
+
+            # Also save as latest
+            latest_path = output_dir / 'checkpoint_latest.pth'
+            torch.save({
+                'step': global_step,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'config': config
+            }, latest_path)
+
+        # Generate samples
+        if global_step > 0 and global_step % args.sample_interval == 0:
+            samples = generate_samples(model, 16, device, sample_dir, global_step, normal_loader)
+
+        # Log to tensorboard
+        if global_step % 100 == 0 and loss_count > 0:
+            avg_loss = running_loss / loss_count
+            writer.add_scalar('Loss/train', avg_loss, global_step)
+            writer.add_scalar('Gradient/norm', grad_norm, global_step)
+            writer.add_scalar('Learning_rate', scheduler.get_last_lr()[0], global_step)
+            # Reset running loss
+            running_loss = 0
+            loss_count = 0
+
+        global_step += 1
+        pbar.update(1)
+
+    pbar.close()
+
     # Save final model
-    final_path = output_dir / f'salad_epoch_{args.epochs}.pth'
+    final_path = output_dir / 'checkpoint_final.pth'
     torch.save({
-        'epoch': args.epochs,
+        'step': args.train_num_steps,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'config': config
     }, final_path)
-    
+
     writer.close()
-    print("\nTraining completed!")
-    print(f"Best validation loss: {best_val_loss:.4f}")
-    print(f"Models saved to: {output_dir}")
+    print("\n✅ Training completed!")
+    print(f"📁 Models saved to: {output_dir}")
+    print(f"🎨 Samples saved to: {sample_dir}")
 
 
 if __name__ == "__main__":

@@ -33,18 +33,19 @@ model:
   use_lesion_attention: true    # Lesion-aware attention
   use_histogram: true           # Histogram conditioning
 
-# Training settings
+# Training settings (Step-based, NO validation)
 training:
+  train_num_steps: 50000      # Total training steps (like LeFusion)
   batch_size: 4
-  epochs: 100
-  learning_rate: 1e-4
+  learning_rate: 1e-5          # Lower to prevent gradient explosion
   lr_scheduler: "cosine"
-  warmup_epochs: 5
+  warmup_steps: 1000           # Warmup for first 1000 steps
   gradient_clip: 1.0
+  gradient_skip_threshold: 100.0
   ema_decay: 0.995
-  save_interval: 20
-  val_interval: 5
-  num_samples: 4
+  save_interval: 5000          # Save checkpoint every 5000 steps
+  sample_interval: 1000        # Generate samples every 1000 steps
+  num_samples: 16              # Number of samples to generate
   mixed_precision: false
 
 # Output settings
